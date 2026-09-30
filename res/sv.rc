@@ -1,0 +1,3 @@
+/* Ресурсы SV.exe: значок и версия. */
+1 ICON "sv.ico"
+#include "version.rc"

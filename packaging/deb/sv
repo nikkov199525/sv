@@ -1,0 +1,124 @@
+#!/bin/sh
+# ---------------------------------------------------------------------
+#  sv -- Speaking Viewer, говорящий просмотрщик текстов.
+#
+#  Программа установлена в /usr/lib/sv, её файлы -- в /usr/share/sv.
+#  Своя папка у каждого пользователя: ~/.config/sv (или
+#  $XDG_CONFIG_HOME/sv, или любая другая через $SV_HOME). Там настройки
+#  (SV.INI, SV.CFG), SV.DCL, закладки, история вводов и последние
+#  позиции, туда же можно класть свои помощники для SV.DCL: для программы
+#  это «папка программы», $SV в SV.DCL.
+#
+#  При первом запуске туда копируются настройки по умолчанию, а справка и
+#  помощники архивов и fb2 ставятся ссылками на файлы пакета: так их
+#  обновляет новая версия пакета. Свой файл вместо ссылки пакет не
+#  трогает.
+# ---------------------------------------------------------------------
+share=/usr/share/sv
+program=/usr/lib/sv/SV
+
+case $1 in
+-h|--help|/\?)
+    cat <<'EOF'
+Speaking Viewer -- говорящий просмотрщик текстов.
+
+    sv [/high | /low | /disk] [/r] [файл...]
+
+Файлы (до девяти) открываются в окнах 1..9; без файлов открываются
+последние или диалог выбора файла -- как задано в настройках.
+
+    /r       сразу читать текст
+    /high, /low, /disk
+             память для текста (осталась для совместимости настроек)
+
+Справка -- F1 в программе, список клавиш -- F10, «Помощь», «Клавиши».
+В MATE и GNOME Terminal sv на время работы сама отключает их перехват
+F10 и Alt+буква; в других терминалах, если F10 не открывает меню, -- man sv.
+Папка настроек: ~/.config/sv. Подробнее: man sv.
+EOF
+    exit 0 ;;
+-v|--version)
+    echo "Speaking Viewer @SV_VERSION@"
+    exit 0 ;;
+esac
+
+home=${SV_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/sv}
+mkdir -p "$home" || exit 1
+for f in SV.INI SV.CFG SV.DCL; do
+    [ -e "$home/$f" ] || cp "$share/$f" "$home/$f" || exit 1
+done
+for f in SV_help.txt sv_arc.sh sv_fb2.sh fb2; do
+    if [ -L "$home/$f" ] || [ ! -e "$home/$f" ]; then
+        ln -sfn "$share/$f" "$home/$f"
+    fi
+done
+
+# ---------------------------------------------------------------------
+#  Графические терминалы MATE и GNOME забирают F10 и Alt+буква под своё
+#  меню, и до программы эти клавиши не доходят. На время работы SV их
+#  перехват выключается, а после -- возвращается как было. Прежние
+#  значения лежат в $home/terminal.saved: если SV прервали на полуслове,
+#  следующий запуск сначала вернёт их. Когда открыто несколько SV,
+#  выключает первая, возвращает последняя.
+# ---------------------------------------------------------------------
+saved=$home/terminal.saved
+
+# Эмулятор терминала, в котором запущены: схема gsettings и ключи.
+terminal_keys() {
+    pid=$$
+    while [ "${pid:-1}" -gt 1 ]; do
+        case $(ps -o comm= -p "$pid" 2>/dev/null) in
+        mate-terminal*)
+            echo "org.mate.terminal.global use-menu-accelerators use-mnemonics"
+            return ;;
+        gnome-terminal*)
+            echo "org.gnome.Terminal.Legacy.Settings menu-accelerator-enabled mnemonics-enabled"
+            return ;;
+        esac
+        pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+    done
+}
+
+# Другие SV этого пользователя ещё работают?
+others() {
+    pgrep -u "$(id -u)" -x SV >/dev/null 2>&1
+}
+
+restore() {
+    [ -f "$saved" ] || return 0
+    while read -r schema key value; do
+        gsettings set "$schema" "$key" "$value" 2>/dev/null
+    done < "$saved"
+    rm -f "$saved"
+}
+
+grab_keys() {
+    command -v gsettings >/dev/null 2>&1 || return 0
+    others && return 0
+    restore # остались от прерванного запуска
+    set -- $(terminal_keys)
+    [ $# -gt 1 ] || return 0
+    schema=$1
+    shift
+    : > "$saved"
+    for key; do
+        value=$(gsettings get "$schema" "$key" 2>/dev/null) || continue
+        echo "$schema $key $value" >> "$saved"
+        gsettings set "$schema" "$key" false 2>/dev/null
+    done
+}
+
+release_keys() {
+    others || restore
+}
+
+SV_HOME=$home
+export SV_HOME
+grab_keys
+trap 'release_keys; exit 129' HUP
+trap 'release_keys; exit 130' INT
+trap 'release_keys; exit 143' TERM
+"$program" "$@"
+status=$?
+release_keys
+exit $status

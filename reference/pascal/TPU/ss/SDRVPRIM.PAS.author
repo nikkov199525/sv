@@ -1,0 +1,261 @@
+{$IFDEF FPC}
+{$MODE ObjFPC}
+{$ENDIF}
+{Free Soft Voice Club}
+{Author: Shishmintzev Sergey}
+{E-mail: sergey@michint.kiev.ua}
+{Last-update: 12 Feb 2000}
+
+unit SDrvPrim;
+interface
+uses Objects;
+Const
+  SpkOutputFileName:   string[12]='fonemFon.SDF';(* .Speech Drive File *)
+  SpkOutputWaveName:   string[12]='fonemFon.Wav';  (*  *)
+  SpkOutputWaveHeader: string[12]='SndToWav.Hdr'; (* Файл с заголовком WAVE *)
+
+  MaxBufferSize = $FFFF-$8;
+
+Const
+ soDefault      =-1; (* если SDRV уже установлен,           *)
+                     (* то берутся его параметры            *)
+ soNone         = 0; (* Spick не инициализирован            *)
+ soSpeaker      = 1; (* вывод на внутренний динамик         *)
+ soLPT1         = 2; (* вывод на параллельный интерфейс 1   *)
+ soLPT2         = 3; (* вывод на параллельный интерфейс 2   *)
+ soSoundBlaster = 4; (* вывод на Sound Blaster              *)
+ soSBDMA 	= 5; (* вывод на Sound Blaster DMA          *)
+
+ soMemory       = 5; (* вывод в буфер (8-bit 11000kHz <64k) *)
+ soWaveMemory   = 6; (* вывод в буфер с заголовком Wave     *)
+ soWaveFile     = 7; (* вывод в файл с заголовком Wave      *)
+
+ soSdrvFile     = 8; (* вывод в файл SDRV                   *)
+                     (*  (>64k но формат не известен)       *)
+
+  (* Описание кодов ошибки *)
+  feNone            = 0;  (* Нет ошибки                                      *)
+  feDrvNotLoaded    = 1;  (* Речевой драйвер не загружен                     *)
+  feParamRange      = 2;  (* Значение параметра лежит за пределами заданного *)
+  feVoicePath       = 3;  (* Не найден файл с эталонами диктора              *)
+  feFunctInv        = 4;  (* Неправильный номер функции речевого драйвера    *)
+  feDeviceNotFound  = 8;  (* Не обнаружено устройство для вывода звука       *)
+  feSpeakBreak      = $80;(* Произошло прерывание генерации речи             *)
+  feDrvBusy         = -1; (* Речевой драйвер занят текущей обработкой текста *)
+
+Type
+ PBuffer=^TBuffer; (* адрес буфера      *)
+ TBuffer = record (* описание буфера    *)
+    size: word; (* конец буфера *)
+    data: array[$0000..MaxBufferSize-2] of byte; (* сам буфер *)
+ end;
+
+  TSpVoice = (Male1, Female1, Male2, Female2);(* Тип голоса (М1,Ж1,М2,Ж2) *)
+
+  TSpOutput = soNone..soSoundBlaster;(* Вывод речи *)
+
+  TSpTempo = 0..150;  (* Темп речи *)
+
+  TSpVolume = 0..255; (* Громкость *)
+
+  (* Структура массива периодов основного тона (ПОТ)   *)
+  TMinMaxItem = record min,max:word end; (* Ячейка ПОТ *)
+  PSPPitch = ^TSPPitch;   (* адрес структуры ПОТ       *)
+  TSPPitch = record       (* структура ПОТ             *)
+    num : word;  (* кл-во голосов                      *)
+    Dictor : array[TSpVoice] of TMinMaxItem;(* массив ПОТ *)
+  end;
+
+  (* Описание клавиши *)
+  PKeyItem = ^TKeyItem;
+  TKeyItem = Record
+    case boolean of
+     true:(Scan,           (* скэн-код      *)
+           Status: byte);  (* статус-код    *)
+     false:(W:Word);       (* одним словом  *)
+  end;
+
+  PKeyTable = ^TKeyTable;
+  TKeyTable = array[0..32] of TKeyItem; (* Массив клавиш *)
+
+  (* Структура массива клавиш останова (КО)  *)
+  PSPBrk = ^TSPBrk; (* адрес структуры КО    *)
+  TSPBrk = record   (* описание структуры КО *)
+           num : word;        (* кл-во КО    *)
+           Key : TKeyTable;   (* Массив КО   *)
+  end;
+
+  (* Структура массива параметров речевого драйвера  (ПРДр) *)
+  PSpkParam = ^TSpkParam; (* адрес структуры ПРДр           *)
+  TSpkParam = record (* Описание структуры ПРДр             *)
+              Voice    :TSpVoice;  (* номер диктора         *)
+              Dummy1   :byte;
+              Tempo    :TSpTempo;  (* значение темпа речи   *)
+              Dummy2   :byte;
+              Volume   :TSpVolume; (* значение громкости    *)
+              Dummy3   :byte;
+              Output   :TSpOutput; (* номер выхода          *)
+              Dummy4   :byte;
+              Pitch    :PSpPitch;  (* адрес таблицы ПОТ     *)
+              KeyBreak :PSpBrk;    (* адрес таблицы КО      *)
+  end;
+
+(*  Статус-код содержит информацию о состоянии шифт- и      *)
+(*  триггерных клавиш, полученную при помощи прерывания 16H *)
+(*  (функция 2):                                            *)
+
+const
+    skRtShPush  = $01; (* если нажата и не отпущена клавиша RightShift    *)
+    skLtShPush  = $02; (* если нажата и не отпущена клавиша LeftShift     *)
+    skCtrlPush  = $04; (* если нажата и не отпущена клавиша Ctrl          *)
+    skAltPush   = $08; (* если нажата и не отпущена клавиша Alt           *)
+    skScrollLOn = $10; (* если зафиксирован скроллинг экрана (ScrollLock) *)
+    skNumLkOn   = $20; (* если включена цифровая клавиатура (NumLock)     *)
+    skCapsLOn   = $40; (* если зафиксирован верхний регистр (CapsLock)    *)
+    skInsOn     = $80; (* если включен режим вставки  (Ins)               *)
+
+(* вспомогательные процедуры для работы с флагами *)
+//procedure SetFlag(var Flags : Word; FlagMask : Word);
+  {-Set the bit(s) specified by FlagMask in Flags}
+//procedure ClearFlag(var Flags : Word; FlagMask : Word);
+  {-Clear the bit(s) specified by FlagMask in Flags}
+//function FlagIsSet(Flags, FlagMask : Word) : Boolean;
+  {-Returns True if the bit specified by FlagMask is set in Flags}
+
+var
+       SdrvInt: word; (* Номер прерывания текущего драйвера речи       *)
+    CurrSpkPar: PSpkParam; (* Текущие параметры драйвера            *)
+    StartVoice: TSpVoice;
+     psbBuffer: PBuffer;
+ wBufRealSegSpkMem: Word;
+        SVoice: TBufStream;
+    WAVEHeader: String;
+
+   SDrvInMemory: boolean;
+
+function SDrvResult: word;
+
+procedure SText00(stSent: String);
+procedure SpkSetVoice(NewVoice: TSpVoice);     (* номер голоса 0-3    *)
+procedure SpkSetVolume(NewVolume: TSpVolume);  (* уровень громкости*)
+procedure SpkSetTemp(NewTemp: TSpTempo);       (* скорость речи 0-150 *)
+procedure SpkSetOutput(NewPort: TSpOutput);    (* номер порта вывода  *)
+procedure SpkSetPitch(Min, Max: word);         (* ПОТ *)
+procedure SpkFile(var f: text);
+procedure SpkMem(var pBufAddr: PBuffer;        (* адрес выходного буфера     *)
+                     wBufSize: Word);          (* max число байт             *)
+procedure SpkMemDone(var pBufAddr: PBuffer;
+                         wBufSize: Word);      (* адрес выходного буфера  *)
+procedure SpkContinue;
+procedure SpkSetKeyBreak(const NewKeyT: TKeyTable);
+function SpkGetKeyBreak(var Scan, Status: byte): boolean;
+function SpkGetConf: PSpkParam;
+procedure SpkConfFree(var Param: PSpkParam);
+
+procedure GetWaveHeader;
+{procedure MakeWaveMemory;}
+procedure MakeWaveFile;
+
+
+(*██▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓██*)
+(*▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒*)implementation (*▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒*)
+(*██▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓██*)
+
+(*░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░*)
+(*██▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓*){$IfDef FonOn}(*▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓██*)
+(*░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░*)
+{$IFDEF WIN32}
+uses Windows, SysUtils, sdrvxpapi, registry, keyboard;
+{$ELSE}
+{$ENDIF}
+{$IFDEF DOS}
+{$IFDEF DPMI}
+uses Dos,WinAPI,Dpmi;
+{$ELSE}
+uses Dos;
+{$ENDIF}
+{$ENDIF}
+
+
+Const
+  SpeakFun=$01;
+  SetVoiceFun=$02;
+  SetVolumeFun=$03;
+  SetTempFun=$04;
+  SetPortFun=$05;
+
+  SetPitchFun=$07;
+  FileFun=$08;
+  MemoryFun=$09;
+  ContinueFun=$0A;
+  SetKeyBreakFun=$0B;
+
+  GetKeyBreakFun=$0D;
+  {GetVerFun=$0E;}
+  GetConfFun=$0F;
+
+{$IFDEF WIN32}
+  {$I SDRVPRIM.SDRVXPApi.INC}
+{$ENDIF}
+{$IFDEF DOS}
+{$IFDEF DPMI}
+  {$I SdrvPrim.in2}
+{$ELSE}
+  {$I SdrvPrim.in1}
+{$ENDIF}
+{$ENDIF}
+
+(*░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░*)
+var
+ OldExitProc:pointer;
+{$F+}
+procedure NewExitProc;
+(*██▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓██*)
+begin
+  ExitProc:=OldExitProc;
+  if SDrvInMemory then SpkConfFree(CurrSpkPar);
+{$IFDEF WINDOWS}
+  SdrvInterfaceDone;
+{$ENDIF}
+end;
+{$F-}
+(*░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░*)
+begin
+  SdrvInterfaceInit;
+{$IFDEF DOS}
+{$IFDEF DPMI}
+  DPMIRegs.ax:=0;
+{$ELSE}
+  Regs.ax:=0;
+{$ENDIF}
+{$ENDIF}
+  OldExitProc:=ExitProc;
+  ExitProc:=@NewExitProc;
+(*░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░*)
+(*██▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓*){$Else}(*▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓██*)
+(*░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░*)
+function SDrvResult:word;   Begin end;
+procedure SText00;          Begin end;
+procedure SpkSetVoice;      Begin end;
+procedure SpkSetVolume;     Begin end;
+procedure SpkSetTemp;       Begin end;
+procedure SpkSetOutPut;     Begin end;
+procedure SpkSetPitch;      Begin end;
+procedure SpkFile;          Begin end;
+procedure SpkMem;           Begin end;
+procedure SpkMemDone;       Begin end;
+procedure SpkContinue;      Begin end;
+procedure SpkSetKeyBreak;   Begin end;
+function SpkGetKeyBreak(var Scan,Status : byte):boolean; Begin end;
+function spkGetConf:PSpkParam;       Begin end;
+procedure SpkConfFree;      Begin end;
+
+procedure GetWaveHeader;    Begin end;
+procedure MakeWaveMemory;   Begin end;
+procedure MakeWaveFile;     Begin end;
+
+(*░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░*)
+(*██▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓*){$EndIf}(*▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓██*)
+(*░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░░░▒▒▒▒▓▓▓▓████▓▓▓▓▒▒▒▒░░*)
+
+end.

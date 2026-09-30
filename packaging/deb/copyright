@@ -1,0 +1,23 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Speaking Viewer (SV)
+
+Files: *
+Copyright: Владимир Довыденков (программа SV, при содействии С. Г. Саприна,
+ П. Сысолятина и С. Картавцева)
+ 2026 Nayk (перенос с Free Pascal на C++)
+License: GPL-3
+ С согласия автора программы SV Владимира Довыденкова распространяется на
+ условиях GNU General Public License версии 3.
+ .
+ В Debian полный текст лицензии -- /usr/share/common-licenses/GPL-3.
+
+Files: vendor/newfon_core/*
+Copyright: 1990, 1991 Speech Research Laboratory, Minsk
+ 2005 Igor Poretsky
+ 2021 Boris Lobanov
+ 2021 Alexander Ivanov
+License: MIT
+
+Files: vendor/miniaudio/*
+Copyright: David Reid
+License: public-domain or MIT-0

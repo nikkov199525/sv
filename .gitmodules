@@ -1,0 +1,6 @@
+[submodule "vendor/newfon_core"]
+	path = vendor/newfon_core
+	url = https://github.com/nikkov199525/newfon_core
+[submodule "vendor/miniaudio"]
+	path = vendor/miniaudio
+	url = https://github.com/mackron/miniaudio

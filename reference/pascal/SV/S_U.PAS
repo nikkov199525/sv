@@ -1,0 +1,1853 @@
+unit S_U;
+{$B-,I-,V-}
+{$define external}
+{$define release}
+interface
+uses SayForm,MusEfect,v_u,help,mem;
+
+type
+    tHMW=           1..9;
+    tOld_Str=       array[1..10] of string;
+    tOSF=           file of tOld_Str;
+    tChFrag=        string[70];
+
+const
+    FBookMark:      string[12] = 'SV.VBM';
+    CfgFile:        string[12] = 'SV.CFG';
+    IniFile:        string[12] = 'SV.INI';
+    FLoaded:        string[12] = 'SV.LDD';
+    ScrFile:        string[12] = 'SV.SCR';
+    HFile:          string[12] = 'SV.HLP';
+    FLast_Posit:    string[12] = 'SV.LPS';
+    Dic_Index:      string[12] = 'SV.NDX';
+    Arc_Dictionary: string[12] = 'SV.ERD';
+    Dictionary:     string[12] = 'SV.DIC';
+    ChFrag:         string[12] = 'SV.CHF';
+    Version=        '4.0';
+    MenuString=     '  Файл    Читать    Блок    Закладки    Поиск    Окна    Настройки    Помощь  ';
+    {$ifdef debug}
+    WorkVersion=    '1';
+    {$endif}
+    Load_Old_Str=   $00;
+    Find_Old_Str=   $01;
+    WrBlock_Old_Str=$02;
+    BM_Old_Str=     $03;
+    Sve_Old_Str=    $04;
+    Xlt_Old_Str=    $05;
+    Dic_Old_Str=    $06;
+    BMSve_Old_Str=  $07;
+    BMLoad_Old_Str= $08;
+    ChF_Old_Str=    $09;
+    Ofs_Right=      #77;
+    Ofs_Left=       #75;
+    Alf=            'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЬЫЪЭЮЯABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    Sep_C=          '.';
+    FndFrag_Mark=   '#';
+    NewFrag_Mark=   '^';
+    NoCase_Mark=    '@';
+    English=        0;
+    German=         1;
+    Russian=        0;
+    Ukrainian=      1;
+    UkrLexCoding=   0;
+    UkrWordCoding=  1;
+    CCtrl_27=       27;
+    CCtrl_29=       29;
+    CWin:           tHMW = 1;
+    EOGM:           byte = 1;
+
+var
+    Viewer:         array[tHMW] of tpoViewer;
+    Transport:      word;
+    NullSymb:       set of char;
+    ReadMode:       boolean;
+    Dev:            byte;
+    Hlp_Viewer:     tpoHelp;
+    RType:          array['C'..'N'] of string[14];
+    {$ifdef internal}
+    Temp_Viewer_Exit:boolean;
+    {$endif}
+    Alarm_Off:      boolean;
+    HMW:            byte;
+    C:              longint;
+    Break_Sym:      string[128];
+    ChList:         toMemory;
+
+procedure Stop(Variant:  byte);
+{$ifdef external}
+procedure SaveScreen;
+procedure LoadScreen;
+{$endif}
+procedure V_Signal(Variant:  byte);
+procedure CleanBMark;
+procedure Call;
+procedure FindEmpty(Direction:  boolean);
+procedure FindIndent(Direction:  boolean);
+procedure WinList;
+procedure Statistics;
+procedure Symb_On;
+procedure Symb_Off;
+procedure HelpTopics;
+procedure Close_Win;
+procedure Load_New_File;
+function  Count_Read_Time(Start_Line,Stop_Line:  longint):  longint;
+procedure Block_Time;
+procedure Rest_Time;
+procedure Load_Chf;
+
+implementation
+uses m_u,p_u,e_u,harddisk,various,transfrm,line,hronos,speech,
+     {$ifdef internal}
+     params,
+     {$endif}
+     dinamic,keyb,keyboard,mymath,dialog,ff,  cursor,  spick,{$IFDEF SV_MOUSE}mouse,{$ENDIF}  dos,video;
+
+var
+    IORes:          word;
+
+procedure Stop(Variant:  byte);
+    begin
+    {$ifdef external}
+    LoadScreen;
+    writeln;
+    case Variant of
+       0:
+            begin
+            writeln('SPEAKING VIEWER');
+            writeln('версия - '+Version);
+            if V_Param^.AutoSave then
+                SParam;
+            end;
+       1:
+            begin
+            writeln('Не достаточно памяти');
+            writeln;
+            writeln('    Программе необходим определенный минимум оперативной памяти.');
+            writeln('Для выполнения вызванной вами операции необходимо ',Transport);
+            Say('Оши+бка.  не доста+точно па+мяти.');
+            end;
+       2:
+            begin
+            writeln('Не удается установить модуль памяти');
+            writeln;
+            writeln('    Программа попыталась установить модуль управления тем типом памяти,');
+            writeln('который определен в файле инициализации  "',IniFile,'"  в строке');
+            writeln('      InvokedMemory= ');
+            writeln('  Значения:');
+            writeln(' Low -  нижняя (досовская) память');
+            writeln('High -  верхняя (EMS) память');
+            writeln('Disk -  дисковая (винчестер) память');
+            Say('оши+бка.  не удае+тся установи+ть мо+дуль па+мяти.');
+            end;
+       3:
+            begin
+            writeln('Ошибка при добавлении новой строки в память');
+            writeln;
+            writeln('    Произошла ошибка при добавлении новой строки из файла в память.');
+            writeln('Это могло произойти из-за недостаточного количества памяти того типа, который');
+            writeln('указан в файле инициализации.');
+            Say('оши+бка при+ добавле+нии строки+.');
+            end;
+       4:
+            begin
+            writeln('Прервано пользователем!!!');
+            end;
+       5:
+            begin
+            writeln('Не найден загружаемый файл');
+            end;
+        end;
+    writeln;
+    if V_Param<> nil then
+        dispose(V_Param);
+    if Hlp_Viewer<> nil then
+        dispose(Hlp_Viewer,Release);
+    halt;
+    {$else}
+    case Variant of
+       0:  if V_Param^.AutoSave then
+            SParam;
+       1:  V_Err(4);
+       2:  V_Err(5);
+       3:  V_Err(6);
+        end;
+    exit;
+    {$endif}
+    end;
+{$ifdef external}
+procedure SaveScreen;
+    var
+        Scr:            file of tScreen;
+
+    begin
+    assign(Scr,MyDirc+ScrFile);
+    IORes:= ioresult;
+    rewrite(Scr);
+    if ioresult<> 0 then
+        exit;
+    write(Scr,BufScreen);
+    IORes:= ioresult;
+    close(Scr);
+    IORes:= ioresult;
+    end;
+
+procedure LoadScreen;
+    var
+        Scr:            file of tScreen;
+        TmpScreen:      tScreen;
+
+    begin
+    assign(Scr,MyDirc+ScrFile);
+    IORes:= ioresult;
+    reset(Scr);
+    IORes:= ioresult;
+    read(Scr,TmpScreen);
+    if ioresult= 0 then begin
+        BufScreen:= TmpScreen;
+        ShowScr;
+    end;
+    close(Scr);
+    IORes:= ioresult;
+    erase(Scr);
+    end;
+{$endif}
+procedure V_Signal(Variant:  byte);
+var
+  i: longint;
+begin
+  if (not V_Param^.Sound) then 
+    exit;
+  case Variant of
+    (*0: BeginEffect; {begin}
+    1:{empty}  EmptyEffect;*)
+    1:{empty}  Play('@20:20');
+    2:{NormLine} {Play('@4000:0')};
+    3:{indent} Play('@1000:5');
+    6:{found}  Play('@100:14');
+    8:{breakread} Play('@750:30 @800:30 @850:30 @900:30 @950:30 @1000:30');
+    9:{endtext} Play('@1000:40 @950:40 @900:40 @850:40 @800:40 @750:40');
+    10:{Separate Win} Play('@1000:40 @1100:40 @1000:40 @1100:40');
+    11:{nofindempty} Play('@5000:20');
+    12:{Line is marked} Play('@1500:20');
+    13:{call block} begin 
+      for i:=0 to 2 do begin
+        if KeyPressed then
+          Exit;
+        Pause(1);
+      end;
+      Play('@1000:25');
+    end;
+    14:{About ziro} Play('@1500:1');
+    15:{ziro} Play('@1500:7');
+    16:{alarm} Play('@900:50 @800:50 @900:50 @800:50 @900:50 @800:50 @900:50 @800:50 @900:50 @800:50 @900:50 @800:50 @900:50 @800:50 @900:50 @800:50 @900:50 @800:50 @900:50 @800:50');
+    17:{change code} Play('@800:50');
+    18:{dictionary} Play('@800:20 @700:20 @600:20 @500:20 @400:20');
+    19:{dictionary step} Play('@3500:15');
+    20:{end line} Play('@800:20');
+  end;
+end;
+
+procedure CleanBMark;
+    var
+        BM:             tFOBM;
+        Buf:            tBookMark;
+        BadRecord:      longint;
+        OldNum:        longint;
+    begin
+    if not Yes('     Отчистить файл закладок?     ') then exit;
+    assign(BM,MyDirc+FBookMark);
+    Reset(BM);
+    if ioresult<> 0 then
+        begin
+        V_Err(3);
+        exit;
+        end;
+    BadRecord:= 0;
+    C:= 0;
+    while not eof(BM) do
+        begin
+        seek(BM,C);
+        read(BM,Buf);
+        if not File_Exists(Buf.FileName) then
+            begin
+            OldNum:= Buf.Num;
+            seek(BM,filesize(BM)-1);
+            read(BM,Buf);
+            Buf.Num:= OldNum;
+            seek(BM,C);
+            write(BM,Buf);
+            seek(BM,filesize(BM)-1);
+            truncate(BM);
+            seek(BM,C);
+            inc(BadRecord);
+            inc(C,-1);
+            end;
+        inc(C);
+        end;
+    close(BM);
+    ShowMessage('     Удалено '+LToS(BadRecord)+' закладок     ','');
+    end;
+
+procedure Call;
+    var
+        Buff:           string;
+        Key:            tKeyCode;
+        Fix:            longint;
+        St,X,Y:         word;
+        Direction:      boolean;
+        MousePressed:   boolean;
+        FirstClick:     boolean;
+        Time_Signal:    boolean;
+        Old_Time:       string[2];
+        HMC:            byte;
+        NW:             integer;
+        LEd:            byte;
+        REd:            byte;
+        C:              byte;
+        Old_Sign:       boolean;
+
+    begin
+    if ReadMode then
+        begin
+        ReadTxt;
+        ReadMode:= false;
+        end;
+    Signal(S_StartP);
+    {$IFDEF SV_MOUSE}
+    if V_Param^.Mouse then showmouse;
+    {$ENDIF}
+    Old_Time:= '';
+    while true do
+        begin
+        if V_Param^.Cursor then
+            setcursor(7,8)
+        else
+            hidecursor;
+        Clear(1,1,80,25);
+        with Viewer[CWin]^ do
+            begin
+            if Viewer[CWin]= nil then
+                begin
+                Clear(1,2,80,25);
+                Frame(1,2,80,25);
+                putline(3,2,'{'+LToS(CWin)+'}',Color.Message);
+                end
+            else
+                begin
+                show;
+                putline(L+2,T,'{'+LToS(CWin)+'}',Color.Message);
+                putline(L+12,T,IIF(V_Param^.Transform_Lat,'|','-'),Color.Message);
+                putline(L+13,T,IIF(V_Param^.ReadBySym,'|','-'),Color.Message);
+                putline(L+14,T,IIF(V_Param^.NoStop,'|','-'),Color.Message);
+                end;
+            end;
+        showscr;
+        if Viewer[CWin]<>nil then begin  {//ss/31.03.2003 17:05:35//}
+          if Viewer[CWin]^.DBF_File then
+              SetCursorXY(Viewer[CWin]^.L,Viewer[CWin]^.T+2)
+          else
+              SetCursorXY(Viewer[CWin]^.L,Viewer[CWin]^.T+1);
+        end;
+        MousePressed:= false;
+        Context:= 1;
+        while not keypressed do
+            begin
+            ShowCurTime;
+            Time_Control;
+            VerifyAlarms;
+            DoBackgroundTasks;
+            {$IFDEF SV_MOUSE}
+            if not V_Param^.Mouse then continue;
+            mousepositionstatus(@St,@X,@Y);
+            if St in [1..2] then
+                begin
+                while ST> 0 do
+                    begin
+                    if St= MouseRightButton then Direction:= true;
+                    if St= MouseLeftButton then Direction:= false;
+                    MouseButton:= St;
+                    mousepositionstatus(@St,@X,@Y);
+                    FirstClick:= true;
+                    while St= 3 do
+                        begin
+                        mousepositionstatus(@St,@X,@Y);
+                        if Direction= true then Viewer[CWin]^.Next(1);
+                        if Direction= false then Viewer[CWin]^.Last(1);
+                        Viewer[CWin]^.Show;
+                        putline(Viewer[CWin]^.L+2,Viewer[CWin]^.T,'{'+LToS(CWin)+'}',Color.Message);
+                        ShowScr;
+                        Fix:= Timer;
+                        if FirstClick then
+                            begin
+                            repeat
+                                mousepositionstatus(@St,@X,@Y);
+                            until (Timer-Fix> 7) or (St<> 3);
+                            FirstClick:= false;
+                            end
+                        else
+                            begin
+                            repeat
+                            until Timer-Fix> 1;
+                            end;
+                        MousePressed:= true;
+                        end;
+                    end;
+                break;
+                end;
+            {$ENDIF}
+            end;
+        if keypressed then
+            Key:= DefineKey
+        else
+            Key:= 0;
+        {$IFDEF SV_MOUSE}
+        if (not MousePressed) and (V_Param^.Mouse) and (mouseready) and (MouseButton> 0) and (Key= 0) then
+            begin
+            if LButton then
+                begin
+                Fix:= Timer;
+                repeat
+                    mousepositionstatus(@MouseButton,@MCoordX,@MCoordY);
+                until (Timer-Fix> 3) or (MouseButton> 0);
+                if Viewer[CWin]<> nil then
+                begin
+                  if LButton then
+                      ReadTxt
+                  else
+                      Viewer[CWin]^.ReadLine;
+                  end;
+                end;
+            if MButton then
+                begin
+                Fix:= Timer;
+                repeat
+                    mousepositionstatus(@MouseButton,@MCoordX,@MCoordY);
+                until (Timer-Fix> 3) or (MouseButton> 0);
+                if MButton then
+                    HelpTopics
+                else
+                    Hlp_Viewer^.CallPart(Context);
+                end;
+            if RButton then
+                begin
+                Fix:= Timer;
+                repeat
+                    mousepositionstatus(@MouseButton,@MCoordX,@MCoordY);
+                until (Timer-Fix> 3) or (MouseButton> 0);
+                if RButton then
+                    Key:= CEsc
+                else
+                    GlobMenu;
+                end;
+            end;
+        MouseButton:= 0;
+        {$ENDIF}
+        case Key of
+        CEsc:  if not Ctrl then
+                begin
+                if V_Param^.ExitConfirm then
+                    begin
+                    if Yes('     Выйти из программы?     ') then
+                        break;
+                    Signal(S_StartP);
+                    end
+                else
+                    break;
+                end
+            else
+                { Ctrl+[  -  замедление.  Справка автора, разделы 1 и 12.
+                  Процедуры в  E_U  названы обратно своему действию:
+                  Set_SpSpeed_Faster  увеличивает  Temp,  а больший  Temp
+                  означает более медленную речь  (справка, раздел 28:
+                  "0: самая быстрая - 150: самая медленная").
+                  Поэтому замедлению соответствует  ..._Faster. }
+                Set_SpSpeed_Faster;
+       CDown: if Viewer[CWin]= nil then
+                Signal(S_Edge)
+             else if not OnlyShift then
+                Viewer[CWin]^.Next(1)
+            else
+                FindEmpty(true);
+         CUp: if Viewer[CWin]= nil then
+                     Signal(S_Edge)
+             else
+            if not OnlyShift then
+                Viewer[CWin]^.Last(1)
+            else
+                FindEmpty(false);
+       CPgDn:  if Viewer[CWin]<> nil then
+                begin
+                if not OnlyShift then
+                    Viewer[CWin]^.Next(20)
+                else
+                    Viewer[CWin]^.Next(V_Param^.Jump_2);
+                end;
+       CPgUp:  if Viewer[CWin]<> nil then
+                begin
+                if not OnlyShift then
+                    Viewer[CWin]^.Last(20)
+                else
+                    Viewer[CWin]^.Last(V_Param^.Jump_2);
+                end;
+  CCtrl_Home:  if OnlyCtrl then
+                begin
+                if Viewer[CWin]<> nil then
+                    begin
+                    Viewer[CWin]^.FirstLine:= 1;
+                    Viewer[CWin]^.OffSet:= 1;
+                    end;
+                Signal(S_Edge);
+                end;
+   CCtrl_End:  if OnlyCtrl then
+                begin
+                if Viewer[CWin]<> nil then
+                    begin
+                    Viewer[CWin]^.FirstLine:= Viewer[CWin]^.Real_L;
+                    Viewer[CWin]^.OffSet:= 1;
+                    end;
+                Signal(S_Edge);
+                end;
+     CCtrl_M:  if (Viewer[CWin]<> nil) and (OnlyCtrl) then
+                begin
+                Viewer[CWin]^.BookMark;
+                Signal(S_StartP);
+                end;
+        CF10:  GlobMenu;
+         CF3:
+                begin
+                Load_New_File;
+                Signal(S_StartP);
+                end;
+         CF7:  if Viewer[CWin]<> nil then
+                begin
+                Viewer[CWin]^.Find(false);
+                Signal(S_StartP);
+                end;
+         CF8:  if Viewer[CWin]<> nil then
+                begin
+                if Empty(V_Param^.User_Decode) then
+                    HMC:= 3
+                else
+                    HMC:= 4;
+                repeat
+                    V_Signal(17);
+                    Fix:= Timer;
+                    repeat
+                      DoBackgroundTasks;
+                    until ((Timer-Fix)> 4) or (keypressed);
+                    if V_Param^.Mode< HMC then
+                        inc(V_Param^.Mode)
+                    else
+                        V_Param^.Mode:= 0;
+                until (not keypressed) or ((keypressed) and (DefineKey<> CF8));
+                ReadCode;
+                end;
+     CCtrl_L:  if (Viewer[CWin]<> nil) and (OnlyCtrl) then Viewer[CWin]^.Find(true);
+    CCtrl_F5:  if (Viewer[CWin]<> nil) and  OnlyCtrl then
+                begin
+                Say('Разме+р/сдви+г окна+.');
+                Viewer[CWin]^.SetWin;
+                Signal(S_StartP);
+                end;
+   CShift_F9:  if OnlyShift then
+                begin
+                if Yes('         Сохранить параметры?         ') then
+                    SParam;
+                Signal(S_StartP);
+                end;
+      CRight:  if not OnlyShift then
+                begin
+                if Viewer[CWin]= nil then
+                    begin
+                    Signal(S_Edge);
+                    continue;
+                    end;
+                Buff:= Viewer[CWin]^.LOF(Viewer[CWin]^.FirstLine);
+                if Empty(Buff) then
+                    if not V_Param^.NoStop then
+                        begin
+                        Signal(S_Edge);
+                        continue;
+                        end
+                    else
+                        begin
+                        if Viewer[CWin]^.FirstLine< Viewer[CWin]^.Real_L then
+                            begin
+                            inc(Viewer[CWin]^.FirstLine);
+                            Viewer[CWin]^.OffSet:= 0;
+                            Buff:= Viewer[CWin]^.LOF(Viewer[CWin]^.FirstLine);
+                            Signal(S_Edge);
+                            end
+                        else
+                            begin
+                            Signal(S_Edge);
+                            continue;
+                            end;
+                        end;
+                if Empty(Buff) then
+                    begin
+                    Viewer[CWin]^.OffSet:= 1;
+                    V_Signal(1);
+                    continue;
+                    end;
+                if Viewer[CWin]^.OffSet= length(Buff) then
+                    if not V_Param^.NoStop then
+                        begin
+                        Signal(S_Edge);
+                        SaySymb(Buff[Viewer[CWin]^.OffSet]);
+                        continue;
+                        end
+                    else
+                        begin
+                        if Viewer[CWin]^.FirstLine< Viewer[CWin]^.Real_L then
+                            begin
+                            inc(Viewer[CWin]^.FirstLine);
+                            Viewer[CWin]^.OffSet:= 0;
+                            Buff:= Viewer[CWin]^.LOF(Viewer[CWin]^.FirstLine);
+                            Signal(S_Edge);
+                            end
+                        else
+                            begin
+                            Signal(S_Edge);
+                            continue;
+                            end;
+                        end;
+                if Empty(Buff) then
+                    begin
+                    Viewer[CWin]^.OffSet:= 1;
+                    V_Signal(1);
+                    continue;
+                    end;
+                inc(Viewer[CWin]^.OffSet);
+                SaySymb(Buff[Viewer[CWin]^.OffSet]);
+                end
+            else
+                FindIndent(true);
+       CLeft:  if not OnlyShift then
+                begin
+                if Viewer[CWin]= nil then
+                    begin
+                    Signal(S_Edge);
+                    continue;
+                    end;
+                Buff:= Viewer[CWin]^.LOF(Viewer[CWin]^.FirstLine);
+                if Empty(Buff) then
+                    begin
+                    Signal(S_Edge);
+                    continue;
+                    end;
+                if Viewer[CWin]^.OffSet= 1 then
+                    begin
+                    Signal(S_Edge);
+                    SaySymb(Buff[1]);
+                    continue;
+                    end;
+                inc(Viewer[CWin]^.OffSet,-1);
+                SaySymb(Buff[Viewer[CWin]^.OffSet]);
+                end
+            else
+                FindIndent(false);
+      CSpace:  if OnlyAlt and (Viewer[CWin]<> nil)  then Viewer[CWin]^.ReadLine
+               else ReadTxt;
+CCtrl_Enter:  if OnlyCtrl then ReadTxt;
+       CHome:
+                 begin
+                 if Viewer[CWin]= nil then
+                     begin
+                     Signal(S_Edge);
+                     continue;
+                     end;
+                 Viewer[CWin]^.OffSet:= 1;
+                 Buff:= Viewer[CWin]^.LOF(Viewer[CWin]^.FirstLine);
+                 if Empty(Buff) then
+                     begin
+                     Signal(S_Edge);
+                     continue;
+                     end;
+                 Signal(S_Edge);
+                 SaySymb(Buff[1]);
+                 end;
+        CEnd:
+                 begin
+                 if Viewer[CWin]= nil then
+                     begin
+                     Signal(S_Edge);
+                     continue;
+                     end;
+                 Buff:= Viewer[CWin]^.LOF(Viewer[CWin]^.FirstLine);
+                 if Empty(Buff) then
+                     begin
+                     Signal(S_Edge);
+                     continue;
+                     end;
+                 Viewer[CWin]^.OffSet:= length(Buff);
+                 Signal(S_Edge);
+                 SaySymb(Buff[length(Buff)]);
+                 end;
+CAlt_9..CAlt_1:
+                begin
+                CWin:= abs(Key)-119;
+                Say('акно+ '+LTos(CWin));
+                end;
+     CCtrl_I:  if OnlyCtrl then
+                begin
+                V_Param^.ReadIndent:= not V_Param^.ReadIndent;
+                Say(iif(V_Param^.ReadIndent,'','не, ')+'Чита+ть абза+ц.')
+                end
+            else
+                begin
+                if Viewer[CWin]= nil then
+                    continue;
+                Old_Sign:= V_Param^.Config.Forward;
+                V_Param^.Config.Forward:= true;
+                Viewer[CWin]^.Find(true);
+                V_Param^.Config.Forward:= Old_Sign;
+                end;
+     CCtrl_W:  if OnlyCtrl then
+                begin
+                V_Param^.ReadWord:= not V_Param^.ReadWord;
+                Say(iif(V_Param^.ReadWord,'','не, ')+'Чита+ть сло+во.')
+                end;
+     CCtrl_E:  if OnlyCtrl then
+                begin
+                V_Param^.ReadEmpty:= not V_Param^.ReadEmpty;
+                Say(iif(V_Param^.ReadEmpty,'','не, ')+'чита+ть пусты+е.');
+                end;
+      CAlt_T:  if OnlyAlt then SayTime;
+      CAlt_D:  if OnlyAlt then SayDate;
+     CAlt_F3:  if (Viewer[CWin]<> nil) and (OnlyAlt) then
+                begin
+                Close_Win;
+                Signal(S_StartP);
+                end;
+ CCtrl_Right:  if (Viewer[CWin]<> nil) and (OnlyCtrl) then
+                if not Viewer[CWin]^.DBF_File then
+                    with Viewer[CWin]^ do
+                        begin
+                        NW:= 0;
+                        Buff:= LOF(FirstLine);
+                        if V_Param^.Local= 0 then
+                            WordLoc(Buff,OffSet,NW,Ofs_Right,LEd,REd)
+                        else
+                            Interval_Loc(Buff,OffSet,LEd,REd,OfS_Right);
+                        if (LEd= 0) or (REd= 0) then
+                            begin
+                            Signal(S_Edge);
+                            continue;
+                            end;
+                        if (ord(Buff[LEd]) in [65..90]) or (ord(Buff[LEd]) in [128..159]) then
+                            Signal(S_Cap);
+                        if V_Param^.ReadBySym then Symb_On;
+                        Say(copy(Buff,LEd,(REd-LEd)+1));
+                        Symb_Off;
+                        OffSet:= LEd;
+                        end
+                else
+                    with Viewer[CWin]^ do
+                        if CurField< DBF^.HMFields then
+                            begin
+                            inc(CurField);
+                            Say(DBF^.Field[CurField]^.Name);
+                            end
+                        else
+                            Signal(S_Edge);
+  CCtrl_Left:  if (Viewer[CWin]<> nil) and (OnlyCtrl) then
+                if not Viewer[CWin]^.DBF_File then
+                    with Viewer[CWin]^ do
+                        begin
+                        NW:= 0;
+                        Buff:= LOF(FirstLine);
+                        WordLoc(Buff,OffSet,NW,Ofs_Left,LEd,REd);
+                        if (LEd= 0) or (REd= 0) then
+                            begin
+                            Signal(S_Edge);
+                            continue;
+                            end;
+                        if (ord(Buff[LEd]) in [65..90]) or (ord(Buff[LEd]) in [128..159]) then
+                            Signal(S_Cap);
+                        if V_Param^.ReadBySym then Symb_On;
+                        Say(copy(Buff,LEd,(REd-LEd)+1));
+                        Symb_Off;
+                        OffSet:= LEd;
+                        end
+                else
+                    with Viewer[CWin]^ do
+                        if CurField> 1 then
+                            begin
+                            inc(CurField,-1);
+                            Say(DBF^.Field[CurField]^.Name);
+                            end
+                    else
+                        Signal(S_Edge);
+     CCtrl_B:  if OnlyCtrl then
+                begin
+                V_Param^.ReadWinByWin:= not V_Param^.ReadWinByWin;
+                Say('чита+ть '+IIF(V_Param^.ReadWinByWin,'все+ о+кна.','одно+ окно+.'));
+                end;
+      CAlt_W:  if OnlyAlt then
+                SayOrdNum(CWin,'\ое\ окно+. ');
+      CAlt_P:  if OnlyAlt then ReadPerCent;
+      CAlt_L:  if OnlyAlt then ReadLNum;
+      CAlt_C:  if OnlyAlt then ReadCode;
+      CAlt_V:  if OnlyAlt then
+                begin
+                Say('ве+рсия '+Version);
+                {$ifdef debug}
+                    Say('рабо+чая '+workVersion);
+                {$endif}
+                {$ifdef beta}
+                Say('бэта.');
+                {$endif}
+                {$ifdef DPMI} {//ss/12.04.2003 13:51:04//}
+                Say('Защищённый режим');
+                {$endif}
+                end;
+      CAlt_0:  if OnlyAlt then
+                begin
+                WinList;
+                Signal(S_StartP);
+                end;
+     CCtrl_G:  if (VIewer[CWin]<> nil) and (OnlyCtrl) then
+                begin
+                Viewer[CWin]^.GotoL;
+                Signal(S_StartP);
+                end;
+     CCtrl_S:  if (Viewer[CWin]<> nil) and (OnlyCtrl) then
+                begin
+                Statistics;
+                Signal(S_StartP);
+                end;
+     CCtrl_O:  if OnlyCtrl then
+                begin
+                V_Param^.ReadBySym:= not V_Param^.ReadBySym;
+                Say('чита+ть '+IIF(V_Param^.ReadBySym,'все+ си+мволы.','бе+з си+мволов.'));
+                end;
+         CF1:
+                begin
+                Hlp_Viewer^.CallPart(Context);
+                Signal(S_StartP);
+                end;
+     CCtrl_R:  if OnlyCtrl then
+                begin
+                V_Param^.Transform_Lat:= not V_Param^.Transform_Lat;
+                Say(IIF(V_Param^.Transform_Lat,'','не. ')+'Лати+нские в ру+сские.');
+                end;
+     CCtrl_V:
+                begin
+                V_Param^.Talk:= not V_Param^.Talk;
+                TalkStatus(true);
+                if V_Param^.Talk then
+                    begin
+                    Set_Viewer_Param;
+                    Say('ре+чь вклю+чена.');
+                    end
+                else
+                    Say('ре+чь вы+ключена.');
+                TalkStatus(V_Param^.Talk);
+                end;
+     CCtrl_K:  if (Viewer[CWin]<> nil) and (OnlyCtrl) then
+                begin
+                Say('Бло+к.');
+                while not KEYPRESSED DO begin
+                    DoBackgroundTasks;
+                    V_Signal(13);
+                end;
+                case DefineKey of
+             CCtrl_B:  if OnlyCtrl then
+                        begin
+                        Block_B;
+                        Say('нача+ло.');
+                        end;
+             CCtrl_K:  if OnlyCtrl then
+                        begin
+                        Block_E;
+                        Say('коне+ц.');
+                        end;
+         CCtrl_Enter:  if OnlyCtrl then
+                        Block_Read;
+             CCtrl_H:  if OnlyCtrl then
+                        begin
+                        Block_Hide;
+                        Say('разме+чен.');
+                        end;
+             CCtrl_W:  if OnlyCtrl then
+                        Block_Write;
+             CCtrl_T:  if OnlyCtrl then
+                        Block_Time;
+            CCtrl_F9:  if OnlyCtrl then
+                        Print_Block;
+             CCtrl_L:   if (Viewer[CWin]<> nil) then
+                        begin
+                        if (Viewer[CWin]^.Block_Begin= 0) or
+                           (Viewer[CWin]^.Block_End= 0) then
+                            begin
+                            Say('Бло+к неотме+чен.');
+                            continue;
+                            end;
+                        SeparateClass:= #0;
+                        with Viewer[CWin]^
+                         do
+                          begin
+                            SayRight((Block_End-Block_Begin)+1,'ж слово\отме+чен\а\о\о');
+                            SayRight((Block_End-Block_Begin)+1,'ж \строк\а+\и+\\.');
+                          end;
+                        SeparateClass:= Sep_C;
+                        end;
+                    end;
+                end;
+            {$ifdef internal}
+         CF9:
+                begin
+                Temp_Viewer_Exit:= true;
+                exit;
+                end;
+            {$endif}
+      CAlt_Y:  if (Viewer[CWin]<> nil) and (OnlyAlt) and (Viewer[CWin]^.DBF_File) then
+                with Viewer[CWin]^.DBF^ do
+                    Say('ти+п по+ля: '+RType[Field[Viewer[CWin]^.CurField]^.Typ]);
+      CAlt_N:  if (Viewer[CWin]<> nil) and (OnlyAlt) and (Viewer[CWin]^.DBF_File) then
+                with Viewer[CWin]^.DBF^ do
+                    Say('назва+ние по+ля: '+Field[Viewer[CWin]^.CurField]^.Name);
+      CAlt_E:  if (Viewer[CWin]<> nil) and  (OnlyAlt) and (Viewer[CWin]^.DBF_File) then
+                with Viewer[CWin]^.DBF^ do
+                    Say('разме+р по+ля: '+LToS(Field[Viewer[CWin]^.CurField]^.Len));
+      CAlt_O:  if (Viewer[CWin]<> nil) and (OnlyAlt) then
+                SayOrdNum(Viewer[CWin]^.OffSet,'\ая\ пози+ция.  ');
+      CAlt_F:  if (Viewer[CWin]<> nil) and (OnlyAlt) and (Viewer[CWin]^.DBF_File) then
+                with Viewer[CWin]^.DBF^ do
+                    Say(LToS(Viewer[CWin]^.CurField));
+     CCtrl_N:  if OnlyCtrl then
+                begin
+                V_Param^.NoStop:= not V_Param^.NoStop;
+                Say(IIF(V_Param^.NoStop,'непреры+вное','ограни+ченое')+' горизонта+льное перемеще+ние.');
+                end;
+      CAlt_R:  if (Viewer[CWin]<> nil) then Rest_Time;
+  CCtrl_PgDn:  if (Viewer[CWin]<> nil) then Viewer[CWin]^.Next(V_Param^.Jump_1);
+  CCtrl_PgUp:  if (Viewer[CWin]<> nil) then Viewer[CWin]^.Last(V_Param^.Jump_1);
+         CF5:  if (Viewer[CWin]<> nil) then Viewer[CWin]^.ReadLine;
+         CF6:  ReadTxt;
+         CF4:
+                begin
+                V_Param^.Printab:= not V_Param^.Printab;
+                Say('quonted printable '+IIF(V_Param^.Printab,'вклю+чен.','вы+ключен.'));
+                end;
+         CF2:  if Viewer[CWin]<> nil then
+                begin
+                SaveAs;
+                Signal(S_StartP);
+                end;
+    CCtrl_F8:  Get_XLT;
+    CCtrl_F6:  if (Viewer[CWin]<> nil) and (OnlyCtrl) then
+                with Viewer[CWin]^ do
+                    begin
+                    Buff:= LOF(FirstLine);
+                    if not Local_Eng_Word(Buff,OffSet,LEd,REd) then
+                        begin
+                        Say('неудае+тся локализова+ть сло+во.');
+                        continue;
+                        end;
+                    Translate(copy(Buff,LEd,(REd-LEd)+1));
+                    end;
+    CCtrl_F9:  if Viewer[CWin]<> nil then Print;
+     CCtrl_C:
+                begin
+                V_Param^.Capital:= not V_Param^.Capital;
+                if V_Param^.Capital then
+                    Say('индика+ция загла+вных бу+кв.')
+                else
+                    Say('индика+ция загла+вных бу+кв вы+ключена.');
+                end;
+      CAlt_A:  if (Viewer[CWin]<> nil) and OnlyAlt then  {//ss/31.03.2003 17:08:15//}
+                begin
+                SeparateClass:= #0;
+                SayRight(Viewer[CWin]^.Real_L,'ж /Всего+ \строк\а+\и+\\.');
+                SeparateClass:= Sep_C;
+                end;
+  CShift_Tab:  if Viewer[CWin]<> nil then
+                begin
+                Old_Sign:= V_Param^.Config.Forward;
+                V_Param^.Config.Forward:= false;
+                Viewer[CWin]^.Find(true);
+                V_Param^.Config.Forward:= Old_Sign;
+                end;
+      CAlt_M:  if OnlyAlt then ReadFMem;
+     CCtrl_A:  if OnlyCtrl then
+                begin
+                V_Param^.ReadAllLine:= not V_Param^.ReadAllLine;
+                Say(IIF(V_Param^.ReadAllLine,'','не')+'Чита+ть всю+ строку+.');
+                end;
+     CCtrl_Y:  if OnlyCtrl then
+                begin
+                if V_Param^.Cyr_Language= Russian then
+                    V_Param^.Cyr_Language:= Ukrainian
+                else
+                    V_Param^.Cyr_Language:= Russian;
+                CyrLang:= V_Param^.Cyr_Language;
+                if CyrLang= Russian then
+                    Say('ру+сский.')
+                else
+                    Say('украи+нский.');
+                end;
+     CCtrl_T:  if OnlyCtrl then
+                begin
+                if V_Param^.Lat_Language= English then
+                    V_Param^.Lat_Language:= German
+                else
+                    V_Param^.Lat_Language:= English;
+                LatLang:= V_Param^.Lat_Language;
+                if LatLang= English then
+                    Say('англи+йский.')
+                else
+                    Say('неме+цкий.');
+                end;
+         CF9:
+                begin
+                with V_Param^ do
+                    begin
+                    if Empty(ChFrag_F) and (not ChFrag) then
+                        begin
+                        Say('неподклю+чен фа+йл описа+ния заме+н.');
+                        continue;
+                        end;
+                    ChFrag:= not ChFrag;
+                    if ChFrag then
+                        begin
+                        if not ChList.InitMemory then
+                            begin
+                            ChList.Define(mem.low,sizeof(tChFrag));
+                            Load_ChF;
+                            end;
+                        Say('заме+на.');
+                        end
+                    else
+                        begin
+                        ChList.Undefine;
+                        Say('бе+з заме+ны.');
+                        end;
+                    end;
+                end;
+     CAlt_F9:  Get_ChFrag;
+    CCtrl_29:  if OnlyCtrl then Set_SpSpeed_Slower;  { Ctrl+]  -  ускорение }
+        CDel:   if (Viewer[CWin]<> nil) then {//ss/31.03.2003 17:07:38//}
+                begin
+                Buff:= Viewer[CWin]^.LOF(Viewer[CWin]^.FirstLine);
+                if length(Buff)= 0 then continue;
+                {
+                if ord(Buff[Viewer[CWin]^.OffSet]) in [65..90] then
+                    begin
+                    if V_Param^.Lat_Language= English then
+                        Say('загла+вная англи+йская бу+ква.')
+                    else
+                        Say('загла+вная неме+цкая бу+ква.');
+                    continue;
+                    end;
+                if ord(Buff[Viewer[CWin]^.OffSet]) in [97..122] then
+                    begin
+                    if V_Param^.Lat_Language= English then
+                        Say('ма+лая англи+йская бу+ква.')
+                    else
+                        Say('ма+лая неме+цкая бу+ква.');
+                    continue;
+                    end;
+                if ord(Buff[Viewer[CWin]^.OffSet]) in [128..159] then
+                    begin
+                    if V_Param^.Cyr_Language= Russian then
+                        Say('загла+вная ру+сская бу+ква.')
+                    else
+                        Say('загла+вная украи+нская бу+ква.');
+                    continue;
+                    end;
+                if (ord(Buff[Viewer[CWin]^.OffSet]) in [160..175]) or
+                   (ord(Buff[Viewer[CWin]^.OffSet]) in [224..239]) then
+                    begin
+                    if V_Param^.Cyr_Language= Russian then
+                        Say('ма+лая ру+сская бу+ква.')
+                    else
+                        Say('ма+лая украи+нская бу+ква.');
+                    continue;
+                    end;
+                }
+                Say(LToS(ord(Buff[Viewer[CWin]^.OffSet])));
+                end;
+            end;
+        end;
+    {$ifdef internal}
+    Temp_Viewer_Exit:= false;
+    {$endif}
+    end;
+
+procedure FindEmpty(Direction:  boolean);
+    var
+        C:              longint;
+        Buf:            string;
+
+    begin
+    if Viewer[CWin]= nil then exit;
+    with Viewer[CWin]^ do
+        if Direction= true then
+            begin
+            if FirstLine= Real_L then
+                begin
+                V_Signal(11);
+                exit;
+                end;
+            for C:= FirstLine+1 to Real_L do
+                begin
+                Buf:= LOF(C);
+                if Empty(Buf) then
+                    begin
+                    FirstLine:= C;
+                    V_Signal(1);
+                    exit;
+                    end;
+                end
+            end
+        else
+            begin
+            if FirstLine= 1 then
+                begin
+                V_Signal(11);
+                exit;
+                end;
+            for C:= FirstLine-1 downto 1 do
+                begin
+                Buf:= LOF(C);
+                if Empty(Buf) then
+                    begin
+                    FirstLine:= C;
+                    V_Signal(1);
+                    exit;
+                    end;
+                end;
+            end;
+    V_Signal(11);
+    end;
+
+procedure FindIndent(Direction:  boolean);
+    var
+        C:              longint;
+        Buf:            string;
+
+    begin
+    if Viewer[CWin]= nil then exit;
+    with Viewer[CWin]^ do
+        if Direction= true then
+            begin
+            if FirstLine= Real_L then
+                begin
+                V_Signal(11);
+                exit;
+                end;
+            for C:= FirstLine+1 to Real_L do
+                begin
+                Buf:= LOF(C);
+                if (Left(LTrim(Buf),1)<> '-') and
+                   (not Empty(Left(Buf,10))) and
+                   (not Empty(Buf)) and (Buf[1]= ' ') then
+                    begin
+                    if V_Param^.ReadIndent then
+                        Say('абза+ц.')
+                    else
+                        V_Signal(3);
+                    FirstLine:= C;
+                    exit;
+                    end;
+                end
+            end
+        else
+            begin
+            if FirstLine= 1 then
+                begin
+                V_Signal(11);
+                exit;
+                end;
+            for C:= FirstLine-1 downto 1 do
+                begin
+                Buf:= LOF(C);
+                if (Left(LTrim(Buf),1)<> '-') and
+                   (not Empty(Left(Buf,10))) and
+                   (not Empty(Buf)) and (Buf[1]= ' ') then
+                    begin
+                    if V_Param^.ReadIndent then
+                        Say('абза+ц.')
+                    else
+                        V_Signal(3);
+                    FirstLine:= C;
+                    exit;
+                    end;
+                end
+            end;
+    V_Signal(11);
+    end;
+
+procedure WinList;
+    var
+        WinMenu:        toPopupMenu;
+        Item:           tPopupElem;
+        NumWin:         byte;
+        C:              byte;
+
+    begin
+    Context:= 21;
+    NumWin:= 0;
+    with WinMenu do
+        begin
+        Sorce:= '';
+        Install(V_Param^.Memory);
+        if not Installed then exit;
+        for C:= 1 to 9 do
+            if (Viewer[C]<>nil) and (Viewer[C]^.Real_L> 0) then {//ss/31.03.2003 17:38:43//}
+                begin
+                Item.Elem:= LToS(C)+Space(7)+Viewer[C]^.FName+Viewer[C]^.FExtn;
+                Add(Item);
+                end;
+        if HowManyElem= 0 then
+            begin
+            Uninstall;
+            exit;
+            end;
+        AllElem:= HowManyElem;
+        Cycle:= V_Param^.CycleMenu;
+        Cursor:= V_Param^.Cursor;
+        Talk:= V_Param^.Talk;
+        In_Centr;
+        ECode[3]:= -59;
+        repeat
+            Call;
+            if ReturnCode= CF1 then
+                Hlp_Viewer^.CallPart(Context)
+            else
+                break;
+        until false;
+        ECode[3]:= 0;
+        if ReturnCode= CEnter then
+            begin
+            for C:= 1 to 9 do
+                if (Viewer[C]<>nil) and (Viewer[C]^.Real_L> 0) then {//ss/31.03.2003 17:41:24//}
+                    begin
+                    inc(NumWin);
+                    if NumWin= CurElem then CWin:= C;
+                    end;
+            SayOrdNum(CWin,'\ое\ окно+. ');
+            Say(Viewer[CWin]^.FName+Viewer[CWin]^.FExtn);
+            end
+        else
+            Say(Cancel);
+        Uninstall;
+        end;
+    end;
+
+procedure Statistics;
+    var
+        Key:            tKeyCode;
+        Lines:          array[1..9] of string[38];
+        Read_Time:      string[12];
+        Num:            longint;
+        C:              byte;
+
+    begin
+    if (Viewer[CWin]=nil) then begin {//ss/12.04.2003 13:47:42//}
+      Signal(S_Err);
+      Exit;
+    end;
+    Context:= 15;
+    Clear(21,8,60,8+(sizeof(Lines) div sizeof(Lines[1]))+1);
+    Frame(21,8,60,8+(sizeof(Lines) div sizeof(Lines[1]))+1);
+    PutLine(35,8,' Статистика ',Color.Title);
+    Read_Time:= '';
+    with Viewer[CWin]^ do
+        begin
+        Num:= Count_Read_Time(1,Real_L);
+        str(Num,Read_Time);
+        if length(Read_Time)< 6 then
+            Read_Time:= Replicate('0',6-length(Read_Time))+Read_Time;
+        insert(':',Read_Time,length(Read_Time)-1);
+        insert(':',Read_Time,length(Read_Time)-4);
+        if not File_Exists(FPath+FName+FExtn) then 
+            exit;
+        Lines[2]:= ' Имя файла :  '+FileStrToConsole(FName+FExtn);
+        end;
+    with Viewer[CWin]^ do
+        Lines[3]:= ' Размер Файла :  '+LToS(File_Size(FPath+FName+FExtn));
+    Lines[8]:= ' Общее звучание :  '+Read_Time;
+    if Viewer[CWin]^.DBF_File then
+        begin
+        Lines[4]:= ' Записей :  '+LToS(Viewer[CWin]^.DBF^.HMRecords);
+        Lines[5]:= ' Всего полей :  '+LToS(Viewer[CWin]^.DBF^.HMFields);
+        Lines[6]:= ' Дата последней редакции :  '+Viewer[CWin]^.DBF^.Last_Date;
+        Lines[7]:= ' Размер записи :  '+LToS(Viewer[CWin]^.DBF^.Record_Len);
+        end
+    else
+        begin
+        Lines[4]:= ' Строк :  '+LToS(Viewer[CWin]^.PText.Lines);
+        SeparateClass:= #0;
+        Lines[5]:= ' Самая длинная строка :  '
+            +LToS(Viewer[CWin]^.PText.MaxWidth)+':'+LToS(Viewer[CWin]^.PText.MaxWNL);
+        Lines[6]:= ' Самая короткая строка :  '
+            +LToS(Viewer[CWin]^.PText.MinWidth)+':'+LToS(Viewer[CWin]^.PText.MinWNL);
+        SeparateClass:= Sep_C;
+        Lines[7]:= ' Левый отступ :  '+LToS(Viewer[CWin]^.PText.LMargin);
+        end;
+    Lines[1]:= '';
+    Lines[9]:= '';
+    for C:= 1 to sizeof(Lines) div sizeof(Lines[1]) do
+        PutLine(22,8+C,Lines[C],Color.Message);
+    ShowScr;
+    SeparateClass:= #0;
+    Lines[2]:= 'И+мя фа+йла: '+Viewer[CWin]^.FName+Viewer[CWin]^.FExtn;
+    with Viewer[CWin]^ do
+        Lines[3]:= 'Разме+р Фа+йла: '+LToS(File_Size(FPath+FName+FExtn));
+    Lines[8]:= 'О+бщее звуча+ние: '+Read_Time;
+    if Viewer[CWin]^.DBF_File then
+        begin
+        Lines[4]:= 'За+писей: '+LToS(Viewer[CWin]^.DBF^.HMRecords);
+        Lines[5]:= 'Всего+ поле+й: '+LToS(Viewer[CWin]^.DBF^.HMFields);
+        Lines[6]:= 'Да+та после+дней реда+кции: '+Viewer[CWin]^.DBF^.Last_Date;
+        Lines[7]:= 'Разме+р за+писи: '+LToS(Viewer[CWin]^.DBF^.Record_Len);
+        end
+    else
+        begin
+        Lines[4]:= 'Стро+к: '+LToS(Viewer[CWin]^.PText.Lines);
+        Lines[5]:= 'Са+мая дли+нная строка+: '
+            +LToS(Viewer[CWin]^.PText.MaxWidth)+':'+LToS(Viewer[CWin]^.PText.MaxWNL);
+        Lines[6]:= 'Са+мая коро+ткая строка+: '
+            +LToS(Viewer[CWin]^.PText.MinWidth)+':'+LToS(Viewer[CWin]^.PText.MinWNL);
+        Lines[7]:= 'Ле+вый о+тступ: '+LToS(Viewer[CWin]^.PText.LMargin);
+        end;
+    SeparateClass:= Sep_C;
+    Say('Стати+стика.');
+    repeat
+        Key:= DefineKey;
+        {$IFDEF SV_MOUSE}
+        if (Key= 0) and (V_Param^.Mouse) then
+            begin
+            if LButton then Key:= 10;
+            if MButton then Key:= -59;
+            if RButton then Key:= 27;
+            end;
+        {$ENDIF}
+        case Key of
+  CCtrl_Enter:  for C:= 1 to sizeof(Lines) div sizeof(Lines[1]) do
+                begin
+                Say(Lines[C]+'.');
+                if keypressed then
+                    begin
+                    V_Signal(8);
+                    DefineKey;
+                    break;
+                    end;
+                end;
+         CF1:  Hlp_Viewer^.CallPart(Context);
+      49..55:  Say(Lines[Key-47]);
+            end;
+    until Key= CEsc;
+    end;
+
+procedure Symb_On;
+    begin
+    nostextsym:= [' '];
+    end;
+
+procedure Symb_Off;
+    begin
+    nostextsym:= NullSymb;
+    end;
+
+procedure HelpTopics;
+    var
+        Topics:         toPopupMenu;
+        Topic:          array[1..45] of tPopupElem;
+        C:              byte;
+
+    begin
+    with Topics do
+        begin
+        Sorce:= '';
+        Install(V_Param^.Memory);
+        if not Installed then exit;
+        Topic[1 ].Elem:= '1.  Программа  "SPEAKING VIEWER"  версии '+Version;
+        Topic[2 ].Elem:= '2.  Главное меню программы                   ';
+        Topic[3 ].Elem:= '3.  Меню  "Файл"                             ';
+        Topic[4 ].Elem:= '4.  Меню  "Читать"                           ';
+        Topic[5 ].Elem:= '5.  Меню  "Блок"                             ';
+        Topic[6 ].Elem:= '6.  Меню  "Закладки"                         ';
+        Topic[7 ].Elem:= '7.  Меню  "Поиск"                            ';
+        Topic[8 ].Elem:= '8.  Меню  "Окна"                             ';
+        Topic[9 ].Elem:= '9.  Меню  "Настройки"                        ';
+        Topic[10].Elem:= '10. Меню  "Помощь"                           ';
+        Topic[11].Elem:= '11. Меню  "Настройки"/"Общие"                ';
+        Topic[12].elem:= '12. Клавиши                                  ';
+        Topic[13].Elem:= '13. Ввод имени нового файла                  ';
+        Topic[14].Elem:= '14. Диалог выбора файлов                     ';
+        Topic[15].Elem:= '15. Окно статистики                          ';
+        Topic[16].Elem:= '16. Список закладок                          ';
+        Topic[17].Elem:= '17. Меню функций списка закладок             ';
+        Topic[18].Elem:= '18. Диалог ввода имени новой закладки        ';
+        Topic[19].Elem:= '19. Диалог поиска строки                     ';
+        Topic[20].Elem:= '20. Диалог ввода номера строки               ';
+        Topic[21].Elem:= '21. Список окон                              ';
+        Topic[22].Elem:= '22. Размер/сдвиг                             ';
+        Topic[23].Elem:= '23. Настройки вида                           ';
+        Topic[24].Elem:= '24. Диалог выбора памяти                     ';
+        Topic[25].Elem:= '25. Диалоговая область  "Разное"             ';
+        Topic[26].Elem:= '26. Настройки интерфейса                     ';
+        Topic[27].Elem:= '27. Настройки закладок                       ';
+        Topic[28].Elem:= '28. Настройки речи                           ';
+        Topic[29].Elem:= '29. Настройки чтения                         ';
+        Topic[30].Elem:= '30. Настройки звука                          ';
+        Topic[31].Elem:= '31. Настройки будильника                     ';
+        Topic[32].Elem:= '32. Запись блока в файл                      ';
+        Topic[33].Elem:= '33.                                          ';
+        Topic[34].Elem:= '34. Настройка процесса загрузки              ';
+        Topic[35].Elem:= '35. Установка будильника                     ';
+        Topic[36].Elem:= '36. Словарь                                  ';
+        Topic[37].Elem:= '37. Файл описания замен                      ';
+        Topic[38].Elem:= '38. Файл описания распаковки                 ';
+        Topic[39].Elem:= '39. Пользовательские файлы перекодировки     ';
+        Topic[40].Elem:= '40. Строки редактирования                    ';
+        Topic[41].Elem:= '41. Диалоговые кнопки                        ';
+        Topic[42].Elem:= '42. Меню                                     ';
+        Topic[43].Elem:= '43. Файлы инициализации и конфигурации       ';
+        Topic[44].Elem:= '44. История программы  "SPEAKING VIEWER"     ';
+        Topic[45].Elem:= '45. Новое в этой версии                      ';
+        for C:= 1 to sizeof(Topic) div sizeof(Topic[1]) do
+            Add(Topic[C]);
+        AllElem:= HowManyElem;
+        Title:= ' Разделы ';
+        Cycle:= V_Param^.CycleMenu;
+        Cursor:= V_Param^.Cursor;
+        SetPosition(17,5,63,21);
+        repeat
+            Call;
+            if ReturnCode= CEnter then
+                Hlp_Viewer^.CallPart(CurElem)
+            else
+                break;
+        until false;
+        Uninstall;
+        end;
+    end;
+
+procedure Close_Win;
+    begin
+    if Viewer[CWin]= nil then exit;
+    if Viewer[CWin]^.DBF_File then
+        begin
+        dispose(Viewer[CWin]^.DBF);
+        Viewer[CWin]^.DBF_File:= false;
+        end;
+    Viewer[CWin]^.Uninstall;
+    dispose(Viewer[CWin]);
+    Viewer[CWin]:= nil;
+    {Viewer[CWin]^.Install('');}
+    Say('Закры+то.');
+    end;
+
+
+procedure Load_NeW_File;
+    var
+        Old_Str:        ^tOld_Str;
+        BufL:           string;
+        Mask:           string;
+        Loaded:         string;
+        OSF:            tOSF;
+        Exist_File:     boolean;
+        Point:          byte;
+        Save_Str:       boolean;
+        HMS:            byte;
+        Nul:            ^tOld_Str;
+
+    begin
+    BufL:= '';
+    Mask:= '';
+    Loaded:= '';
+    Exist_File:= false;
+    Save_Str:= true;
+    HMS:= 0;
+    new(Old_Str);
+    for Point:= 1 to 10 do
+        Old_Str^[Point]:= '';
+    assign(OSF,MyDirc+FLoaded);
+    IORes:= ioresult;
+    reset(OSF);
+    if ioresult= 0 then
+        begin
+        seek(OSF,Load_Old_Str);
+        read(OSF,Old_Str^);
+        if ioresult= 0 then
+            Exist_File:= true;
+        end;
+    Point:= 1;
+    if Exist_File then
+        for HMS:= 10 downto 1 do
+            if not Empty(Old_Str^[HMS]) then break;
+    Say('и+мя фа+йла.');
+    frame(21,11,60,13);
+    putline(31,11,' Введите имя файла ',Color.Title);
+    ECode[3]:= -59;
+    ECode[4]:= -80;
+    ECode[5]:= -72;
+    {//ss/31.03.2003 18:10:58//}
+    Old_Str^[1]:=V_Param^.Open_Mask;
+    {//ss/07.08.2003 18:52:03//}
+    Exist_File:=Old_Str^[2]<>'';
+    repeat
+        Context:= 13;
+        if Exist_File then
+            begin
+            Mask:= Old_Str^[Point];
+            Say(Mask);
+            end;
+        editln(22,12,Mask,255,37);
+        if ReturnCode= CDown then
+            if (Exist_File) and (Point< HMS) then
+                inc(Point)
+            else
+                Signal(S_Edge);
+        if ReturnCode= CUp then
+            if (Exist_File) and (Point> 1) then
+                inc(Point,-1)
+            else
+                Signal(S_Edge);
+        if ReturnCode= CF1 then
+            begin
+            Hlp_Viewer^.CallPart(Context);
+            continue;
+            end;
+        if ReturnCode= CEnter then
+            begin
+            if Upper(Trim(Mask))= Upper(Trim(Old_Str^[Point])) then
+                Save_Str:= false;
+            if (pos('*',Mask)> 0) or (pos('?',Mask)> 0) then
+                begin
+                if pos('\',Mask)> 0 then
+                    begin
+                    CF_Path:= Left(Mask,length(Mask)-(RPos('\',Mask))+1);
+                    CF_Mask:= Right(Mask,RPos('\',Mask)-1);
+                    end
+                else
+                    CF_Mask:= Mask;
+                Loaded:= ChFile;
+                if ReturnCode= CEnter then
+                    begin
+                    if CF_Path[length(CF_Path)]<> '\' then
+                        CF_Path:= CF_Path +'\';
+                    if pos(';',Loaded)= 0 then
+                        Loaded:= CF_Path+Loaded;
+                    end;
+                CF_Help.Release;
+                end
+            else
+                begin
+                if not File_Exists(Mask) then
+                    begin
+                    V_Err(8);
+                    ReturnCode:= 0;
+                    continue;
+                    end;
+                Loaded:= Mask;
+                end;
+            end;
+    until (ReturnCode= CEnter) or (ReturnCode= CEsc);
+    ECode[3]:= 0;
+    ECode[4]:= 0;
+    ECode[5]:= 0;
+    if ReturnCode= CEsc then
+        begin
+        close(OSF);
+        Say(Cancel);
+        if Old_Str<> nil then
+            dispose(Old_Str);
+        exit;
+        end;
+    if (not Exist_File) and (Save_Str) then
+        begin
+        IORes:= ioresult;
+        rewrite(OSF);
+        new(Nul);
+        for C:= 1 to 10 do
+            Nul^[C]:= '';
+        for C:= 0 to Load_Old_Str do
+            begin
+            seek(OSF,C);
+            write(OSF,Nul^);
+            end;
+        dispose(Nul);
+        if ioresult= 0 then
+            Exist_File:= true;
+        end;
+    if (Exist_File) and (Save_Str) then
+        begin
+        Old_Str^[1]:= Mask;
+        for Point:= 10 downto 2 do
+            Old_Str^[Point]:= Old_Str^[Point-1];
+        Old_Str^[1]:= '';
+        seek(OSF,Load_Old_Str);
+        IORes:= ioresult;
+        write(OSF,Old_Str^);
+        end;
+    dispose(Old_Str);
+    IORes:= ioresult;
+    close(OSF);
+    Say(OK);
+    if pos(';',Loaded)<> 0 then
+        begin
+        Mask:= Loaded;
+        for Point:= CWin to 9 do
+            begin
+            Loaded:= Left(Mask,pos(';',Mask)-1);
+            Mask:= Right(Mask,length(Mask)-pos(';',Mask));
+            if Empty(Loaded) then break;
+            if Viewer[Point]= nil then
+                new(Viewer[Point],Install(CF_Path+Loaded))
+            else
+                Viewer[Point]^.Load(CF_Path+Loaded);
+            V_Param^.Last_Files[Point]:=FExpand(CF_Path+Loaded); {//ss/27.03.2003 20:45:21//}
+            end;
+        end
+    else begin
+        if Viewer[CWin]= nil then
+            new(Viewer[CWin],Install(Loaded))
+        else
+            Viewer[CWin]^.Load(Loaded);
+
+      V_Param^.Last_Files[CWin]:=FExpand(Loaded); {//ss/27.03.2003 15:53:58//}
+    end;
+    Say('загру+жено.');
+    end;
+
+function  Count_Read_Time(Start_Line,Stop_Line:  longint):  longint;
+    var
+        Tick:           longint;
+        Second:         longint;
+        Minute:         longint;
+        Hour:           longint;
+        Result:         longint;
+        Res_Str:        string[9];
+        Buf:            string;
+        Err:            integer;
+        C:              longint;
+
+    begin
+    if (Viewer[CWin]=nil) then begin {//ss/12.04.2003 13:47:56//}
+      Signal(S_Err);
+      Exit;
+    end;
+    if (Start_Line= 0) or (Stop_Line= 0) then exit;
+    if Start_Line> Stop_Line then exit;
+    Tick:= 0;
+    Second:= 0;
+    Minute:= 0;
+    Hour:= 0;
+    Result:= 0;
+    with Viewer[CWin]^ do
+        for C:= Start_Line to Stop_Line do
+            begin
+            (*BeepOn(random(5000)); {//ss/25.09.2003//}
+            BeepOff;*)
+            Signal(S_Tick);
+            Buf:= LOF(C);
+            if Empty(Buf) then
+                begin
+                inc(Tick,V_Param^.Empty_Delay);
+                continue;
+                end;
+            Buf:= Trim(Buf);
+            while pos('..',Buf)> 0 do
+                delete(Buf,pos('..',Buf),1);
+            while pos('.',Buf)> 0 do
+                begin
+                inc(Tick,5);
+                delete(Buf,pos('.',Buf),1);
+                end;
+            while pos(',',Buf)> 0 do
+                begin
+                inc(Tick,2);
+                delete(Buf,pos(',',Buf),1);
+                end;
+            while pos(':',Buf)> 0 do
+                begin
+                inc(Tick,4);
+                delete(Buf,pos(':',Buf),1);
+                end;
+            while pos('?',Buf)> 0 do
+                begin
+                inc(Tick,6);
+                delete(Buf,pos('?',Buf),1);
+                end;
+            while pos('!',Buf)> 0 do
+                begin
+                inc(Tick,8);
+                delete(Buf,pos('!',Buf),1);
+                end;
+            while pos(' и ',Buf)> 0 do
+                begin
+                inc(Tick,4);
+                delete(Buf,pos(' и ',Buf),3);
+                end;
+            while pos(' ',Buf)> 0 do
+                delete(Buf,pos(' ',Buf),1);
+            inc(Tick,round(length(Buf)*1.2));
+            end;
+    Second:= round(Tick/18.2);
+    if Second> 60 then
+        begin
+        Minute:= Second div 60;
+        Second:= Second -(Minute*60);
+        end;
+    if Minute> 60 then
+        begin
+        Hour:= Minute div 60;
+        Minute:= Minute -(Hour*60);
+        end;
+    Res_Str:= '';
+    if Hour> 0 then
+        begin
+        str(Hour,Buf);
+        Res_Str:= Buf;
+        end;
+    if Minute> 0 then
+        begin
+        str(Minute,Buf);
+        Res_Str:= Res_Str+Replicate('0',2-length(Buf))+Buf;
+        end
+    else
+        Res_Str:= Res_Str+'00';
+    if Second> 0 then
+        begin
+        str(Second,Buf);
+        Res_Str:= Res_Str+Replicate('0',2-length(Buf))+Buf;
+        end
+    else
+        Res_Str:= Res_Str+'00';
+    if not Empty(Res_Str) then
+        begin
+        val(Res_Str,Result,Err);
+        if Err<> 0 then
+            Result:= 0;
+        end;
+    Count_Read_Time:= Result;
+    end;
+
+procedure Block_Time;
+    var
+        Num:            longint;
+        All_Sound:      string[12];
+
+    begin
+    if (Viewer[CWin]=nil) then begin {//ss/12.04.2003 13:48:04//}
+      Signal(S_Err);
+      Exit;
+    end;
+    with Viewer[CWin]^ do
+        begin
+        if (Block_Begin= 0) or (Block_End= 0) then
+            begin
+            Say('оши+бка.  бло+к не+ отме+чен.');
+            exit;
+            end;
+        Say('вре+мя.');
+        Num:= Count_Read_Time(Block_Begin,Block_End);
+        end;
+    str(Num,All_Sound);
+    if length(All_Sound)< 6 then
+        All_Sound:= Replicate('0',6-length(All_Sound))+All_Sound;
+    insert(':',All_Sound,length(All_Sound)-1);
+    insert(':',All_Sound,length(All_Sound)-4);
+    PutLine(Viewer[CWin]^.L+18,Viewer[CWin]^.T,' '+All_Sound+' ',Color.Frame);
+    ShowScr;
+    Say(All_Sound);
+    while not keypressed do
+        begin
+        Time_Control;
+        VerifyAlarms;
+        ShowCurTime;
+        DoBackgroundTasks;
+        end;
+    end;
+
+procedure Rest_Time;
+    var
+        Num:            longint;
+        All_Sound:      string[12];
+
+    begin
+    if (Viewer[CWin]=nil) then begin {//ss/12.04.2003 13:47:16//}
+      Signal(S_Err);
+      Exit;
+    end;
+    Say('оста+лось ');
+    Num:= Count_Read_Time(Viewer[CWin]^.FirstLine,Viewer[CWin]^.Real_L);
+    str(Num,All_Sound);
+    if length(All_Sound)< 6 then
+        All_Sound:= Replicate('0',6-length(All_Sound))+All_Sound;
+    insert(':',All_Sound,length(All_Sound)-1);
+    insert(':',All_Sound,length(All_Sound)-4);
+    PutLine(Viewer[CWin]^.L+18,Viewer[CWin]^.T,' '+All_Sound+' ',Color.Frame);
+    showscr;
+    Say(All_Sound);
+    while not keypressed do
+        begin
+        Time_Control;
+        VerifyAlarms;
+        ShowCurTime;
+        DoBackgroundTasks;
+        end;
+    end;
+
+procedure Load_ChF;
+    var
+        ChF:            text;
+        BS:             string[70];
+
+    begin
+    if not ChList.InitMemory then exit;
+    if Empty(V_Param^.ChFrag_F) then
+        assign(ChF,MyDirc+ChFrag)
+    else
+        assign(ChF,V_Param^.ChFrag_F);
+    reset(ChF);
+    if ioresult<> 0 then
+        begin
+        ChList.Undefine;
+        exit;
+        end;
+    while not eof(ChF) do
+        begin
+        readln(ChF,BS);
+        ChList.Add(BS);
+        end;
+    close(ChF);
+    end;
+
+begin
+RType['C']:= 'символьный';
+RType['D']:= 'датовый';
+RType['F']:= 'с плав. точкой';
+RType['G']:= 'общий';
+RType['L']:= 'логический';
+RType['M']:= 'текстовый';
+RType['N']:= 'числовой';
+Alarm_Off:= false;
+Break_Sym:= '.,;?!)]}:=';
+end.
+
+{
+Сергей Картавцев:
+1. 08.02.2000 Подключил модуль SayForm и применил процедуры произнесения
+   числительных SayOrdNum и SayRight;
+2. Для произнесения времени применил процедуру SayTime из модуля SayForm;
+3. Ввёл сообщение о текущей дате по Alt+D процедурой SayDate из SayForm;
+4. Подключил модуль MusEfect для вывода звуковых сигналов на SB
+   и начал достраивать в процедуру V_Signal ,блок вывода на SB;
+
+Довыденков Владимир
+09/02/2000
+  ввел константы     BMSve_Old_Str  и  BMLoad_Old_Str
+
+10/02/2000
+  определены клавиши  ctrl+y и ctrl+t  для переключения кирилечных
+  и латиничных языков
+10/02/2000
+  добавлены значения номера строки с максимальной и минимальной длиной
+}

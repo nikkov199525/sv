@@ -1,0 +1,84 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "mingw",
+      "hidden": true,
+      "generator": "MinGW Makefiles",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "mingw-x86",
+      "displayName": "SV x86 (llvm-mingw)",
+      "inherits": "mingw",
+      "binaryDir": "${sourceDir}/obj/mingw-x86",
+      "toolchainFile": "${sourceDir}/cmake/toolchain-x86.cmake"
+    },
+    {
+      "name": "mingw-x64",
+      "displayName": "SV x64 (llvm-mingw)",
+      "inherits": "mingw",
+      "binaryDir": "${sourceDir}/obj/mingw-x64",
+      "toolchainFile": "${sourceDir}/cmake/toolchain-x64.cmake"
+    },
+    {
+      "name": "msvs",
+      "hidden": true,
+      "description": "Генератор не указан: CMake берёт самую новую установленную Visual Studio.",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "msvs-x86",
+      "displayName": "SV x86 (Visual Studio)",
+      "inherits": "msvs",
+      "binaryDir": "${sourceDir}/obj/msvs-x86",
+      "architecture": { "value": "Win32", "strategy": "set" },
+      "cacheVariables": { "SV_ARCH": "x86" }
+    },
+    {
+      "name": "msvs-x64",
+      "displayName": "SV x64 (Visual Studio)",
+      "inherits": "msvs",
+      "binaryDir": "${sourceDir}/obj/msvs-x64",
+      "architecture": { "value": "x64", "strategy": "set" },
+      "cacheVariables": { "SV_ARCH": "x64" }
+    },
+    {
+      "name": "linux",
+      "hidden": true,
+      "generator": "Unix Makefiles",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "linux-x64",
+      "displayName": "SV x64 (Linux, gcc/clang)",
+      "inherits": "linux",
+      "binaryDir": "${sourceDir}/obj/linux-x64",
+      "cacheVariables": { "SV_ARCH": "linux-x64" }
+    },
+    {
+      "name": "linux-x86",
+      "displayName": "SV x86 (Linux, gcc/clang -m32)",
+      "inherits": "linux",
+      "binaryDir": "${sourceDir}/obj/linux-x86",
+      "toolchainFile": "${sourceDir}/cmake/toolchain-linux-x86.cmake"
+    }
+  ],
+  "buildPresets": [
+    { "name": "mingw-x86", "configurePreset": "mingw-x86", "jobs": 8 },
+    { "name": "mingw-x64", "configurePreset": "mingw-x64", "jobs": 8 },
+    { "name": "msvs-x86", "configurePreset": "msvs-x86", "configuration": "Release", "jobs": 8 },
+    { "name": "msvs-x64", "configurePreset": "msvs-x64", "configuration": "Release", "jobs": 8 },
+    { "name": "linux-x64", "configurePreset": "linux-x64", "jobs": 8 },
+    { "name": "linux-x86", "configurePreset": "linux-x86", "jobs": 8 }
+  ],
+  "testPresets": [
+    { "name": "mingw-x86", "configurePreset": "mingw-x86", "output": { "outputOnFailure": true } },
+    { "name": "mingw-x64", "configurePreset": "mingw-x64", "output": { "outputOnFailure": true } },
+    { "name": "msvs-x86", "configurePreset": "msvs-x86", "configuration": "Release", "output": { "outputOnFailure": true } },
+    { "name": "msvs-x64", "configurePreset": "msvs-x64", "configuration": "Release", "output": { "outputOnFailure": true } },
+    { "name": "linux-x64", "configurePreset": "linux-x64", "output": { "outputOnFailure": true } },
+    { "name": "linux-x86", "configurePreset": "linux-x86", "output": { "outputOnFailure": true } }
+  ]
+}
