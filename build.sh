@@ -33,6 +33,22 @@ main() (
     if [ "$1" != "check" ] && [ "$1" != "clean" ]; then
         command -v dpkg-shlibdeps >/dev/null 2>&1 || missing="$missing dpkg-dev"
     fi
+    # 32-разрядная сборка: компилятор с -m32 и библиотеки i386 для
+    # зависимостей пакета.
+    case " $* " in
+    *" x86 "*|*" all "*)
+        if ! echo 'int main() { return 0; }' |
+                c++ -m32 -x c++ - -o /dev/null >/dev/null 2>&1; then
+            missing="$missing gcc-multilib g++-multilib"
+        fi
+        if [ "$1" != "check" ] && ! dpkg -s libstdc++6:i386 >/dev/null 2>&1; then
+            echo "[ОШИБКА] Для пакета i386 нужны библиотеки i386. Установить (от root):" >&2
+            echo "         dpkg --add-architecture i386 && apt update &&" >&2
+            echo "         apt install libc6:i386 libstdc++6:i386 libgcc-s1:i386" >&2
+            [ -n "$missing" ] && echo "         apt install$missing" >&2
+            return 1
+        fi ;;
+    esac
     if [ -n "$missing" ]; then
         echo "[ОШИБКА] Не хватает инструментов сборки:$missing" >&2
         echo "         Установить (от root): apt install$missing" >&2

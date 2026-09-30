@@ -112,13 +112,22 @@ file(CHMOD "${stage}" PERMISSIONS ${exec_mode})
 # Зависимости программы: dpkg-shlibdeps читает её ELF и находит пакеты
 # библиотек. Звук (ALSA, PulseAudio) miniaudio подгружает сама при запуске
 # -- этого shlibdeps не видит, поэтому ALSA указана отдельно; procps (ps,
-# pgrep) нужен запускающему скрипту.
+# pgrep) нужен запускающему скрипту. DEB_HOST_ARCH -- архитектура пакета:
+# для i386 библиотеки ищутся среди пакетов i386 (libc6:i386 и т. д.), а не
+# 32-разрядных пакетов amd64 (lib32stdc++6), зависеть от которых пакет i386
+# не может.
 file(MAKE_DIRECTORY "${stage}.tmp/debian")
 file(WRITE "${stage}.tmp/debian/control" "Source: sv\n\nPackage: sv\nArchitecture: any\n")
-execute_process(COMMAND "${shlibdeps}" -O "-e${stage}/usr/lib/sv/SV"
+execute_process(COMMAND "${CMAKE_COMMAND}" -E env DEB_HOST_ARCH=${deb_arch}
+                        "${shlibdeps}" -O "-e${stage}/usr/lib/sv/SV"
                 WORKING_DIRECTORY "${stage}.tmp"
                 OUTPUT_VARIABLE shlibs RESULT_VARIABLE rc ERROR_VARIABLE err)
 if(NOT rc EQUAL 0 OR NOT shlibs MATCHES "shlibs:Depends=([^\n]*)")
+    if(deb_arch STREQUAL "i386")
+        message(FATAL_ERROR "dpkg-shlibdeps: ${err}\nДля пакета i386 нужны библиотеки i386 "
+            "(от root): dpkg --add-architecture i386 && apt update && "
+            "apt install libc6:i386 libstdc++6:i386 libgcc-s1:i386")
+    endif()
     message(FATAL_ERROR "dpkg-shlibdeps: ${err}")
 endif()
 set(depends "${CMAKE_MATCH_1}, libasound2t64 | libasound2, procps")
