@@ -55,6 +55,12 @@ struct Settings {
     int dictor = 0;
     std::string voice_dir;
     int tempo = 0; // 0..150
+    // Ускорение и паузы -- ключи accel и pause драйвера SDRV (прежде --
+    // файл newfon.cfg): accel 3..13, 10 -- нормально, 4 -- быстрее всего,
+    // 13 -- медленнее всего; pause 0..255, 100 -- обычные паузы, -1 --
+    // пропорционально accel (умолчание драйвера).
+    int accel = 10;
+    int pause = -1;
     // [READING]
     bool read_empty = false;
     bool read_indent = false;

@@ -90,7 +90,6 @@ bool SayFromSymbolsFile(char32_t ch) {
 
 void Init(const std::string& program_dir) {
     symbols_file = program_dir + "speech.sym";
-    newfon::Init(program_dir);
 }
 
 void Shutdown() {
@@ -113,6 +112,10 @@ void SetDictor(int dictor) {
 void SetTempo(int tempo) {
     if (talk && tempo <= newfon::kTempoMax)
         newfon::SetTempo(tempo);
+}
+
+void SetAcceleration(int accel, int pause) {
+    newfon::SetAcceleration(accel, pause);
 }
 
 void SetCyrillic(Cyrillic cyrillic) {

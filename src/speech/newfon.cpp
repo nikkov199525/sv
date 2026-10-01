@@ -5,19 +5,17 @@
 #include "newfon_core.h"
 #include "platform/audio.h"
 #include "platform/console.h"
-#include "platform/system.h"
 #include "text/encoding.h"
-#include "text/strings.h"
 #include "text/unicode.h"
 
 #include <chrono>
-#include <fstream>
 #include <thread>
 #include <vector>
 
 #ifdef SV_SPEECH_TRACE
-#include "text/utf8.h"
+#include "platform/system.h"
 #include <cstdlib>
+#include <fstream>
 #endif
 
 namespace newfon {
@@ -30,8 +28,8 @@ constexpr int kSampleRate = 10000;
 constexpr int kVoices[4] = {NEWFON_MALE_1, NEWFON_FEMALE_1, NEWFON_MALE_2, NEWFON_FEMALE_2};
 
 newfon_conf_t config = [] {
-    // Ровно те значения, что ставит newfon_config_init: настройки программы
-    // (диктор, темп) задаются раньше, чем читается newfon.cfg.
+    // Ровно те значения, что ставит newfon_config_init; настройки программы
+    // (диктор, темп, ускорение, паузы) задаются потом из SV.INI.
     newfon_conf_t c{};
     c.voice = NEWFON_MALE_1;
     c.speech_rate = NEWFON_RATE_DEFAULT;
@@ -84,38 +82,12 @@ int Collect(void* buffer, size_t size, void* user) {
 
 } // namespace
 
-void Init(const std::string& dir) {
-    std::ifstream file(sys::Path(dir + "newfon.cfg"));
-    bool pause_auto = true;
-    for (std::string line; std::getline(file, line);) {
-        line = line.substr(0, line.find(';')); // точка с запятой -- примечание
-        const size_t equal = line.find('=');
-        if (equal == std::string::npos)
-            continue;
-        std::string name, value;
-        for (char c : line.substr(0, equal))
-            if (static_cast<unsigned char>(c) > ' ')
-                name += c;
-        for (char c : line.substr(equal + 1))
-            if (static_cast<unsigned char>(c) > ' ')
-                value += c;
-        const auto number = text::ParseInt(value);
-        if (!number)
-            continue;
-        name = text::Upper(name);
-        if (name == "ACCEL")
-            config.acceleration = static_cast<int>(*number);
-        if (name == "PAUSE") {
-            if (*number < 0)
-                pause_auto = true;
-            else if (*number <= NEWFON_PAUSE_MAX) {
-                pause_auto = false;
-                config.pause = static_cast<int>(*number);
-            }
-        }
-    }
-    if (pause_auto)
+void SetAcceleration(int accel, int pause) {
+    config.acceleration = accel;
+    if (pause < 0)
         PauseFromAcceleration();
+    else
+        config.pause = pause > NEWFON_PAUSE_MAX ? NEWFON_PAUSE_MAX : pause;
 }
 
 void SetVoice(int dictor) {

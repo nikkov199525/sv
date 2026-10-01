@@ -7,8 +7,8 @@
 //     диктор SV 0..3 -- голос ядра male 1, female 1, male 2, female 2;
 //     темп SV 0..150 -- темп ядра 0..150 (0 -- самый быстрый), без пересчёта.
 //
-// Файл newfon.cfg рядом с программой -- замена ключам setup.bat прежнего
-// драйвера SDRV:
+// Ускорение и паузы -- прежние ключи setup.bat драйвера SDRV (в SV.INI --
+// Accel и Pause раздела [SINTEZIZER]):
 //     accel  1..15   ускорение темпа; 10 -- нейтраль;
 //     pause  0..255  относительная длина пауз, 100 -- обычная;
 //            -1 -- паузы пропорциональны accel (так по умолчанию).
@@ -23,10 +23,9 @@ namespace newfon {
 
 constexpr int kTempoMax = 150;
 
-// Прочитать newfon.cfg из каталога dir (с разделителем на конце).
-void Init(const std::string& dir);
 void SetVoice(int dictor);
 void SetTempo(int tempo);
+void SetAcceleration(int accel, int pause);
 
 // Произнести подготовленный текст и дождаться конца. Как у драйвера
 // автора, речь обрывается нажатой клавишей или заново нажатым Ctrl.
