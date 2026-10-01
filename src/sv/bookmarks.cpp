@@ -167,8 +167,11 @@ void Viewer::Bookmarks() {
                                     key::F1,  key::F2,    key::F3};
             if (!ui::KeyPressed())
                 menu.Call();
-            else
+            else {
                 ui::ReturnCode = ui::DefineKey();
+                if (ui::ReturnCode == key::Mouse)
+                    ui::ReturnCode = ui::MouseAsKey();
+            }
         }
         current = menu.current;
         const int selected = std::clamp(menu.current, 1, count);

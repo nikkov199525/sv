@@ -58,6 +58,27 @@ bool IsExitKey(int key) {
            std::find(extra_exit_keys.begin(), extra_exit_keys.end(), key) != extra_exit_keys.end();
 }
 
+namespace {
+
+// Клавиша диалога. Нажатие мыши, как у автора, -- клавиша: левая кнопка --
+// Enter, средняя -- F1, правая -- Esc; если только вызывающий не попросил
+// его как есть (ExitKeys{key::Mouse}).
+int DialogKey() {
+    const int key = DefineKey();
+    return key == key::Mouse && !IsExitKey(key::Mouse) ? MouseAsKey() : key;
+}
+
+// На время выбора в меню сдвиг указателя -- тоже клавиша.
+class MouseMoveKeys {
+public:
+    MouseMoveKeys() { SetMouseMoveIsKey(true); }
+    ~MouseMoveKeys() { SetMouseMoveIsKey(false); }
+    MouseMoveKeys(const MouseMoveKeys&) = delete;
+    MouseMoveKeys& operator=(const MouseMoveKeys&) = delete;
+};
+
+} // namespace
+
 // ------------------------------------------------------------ EditLine
 
 void EditLine(int x, int y, std::string& value, int max, int width) {
@@ -85,6 +106,8 @@ void EditLine(int x, int y, std::string& value, int max, int width) {
         SetCursorXY(cursor_x, y);
         const KeyInput input = ReadKey();
         key = input.code;
+        if (key == key::Mouse && !IsExitKey(key::Mouse))
+            key = MouseAsKey();
         if (IsExitKey(key))
             break;
         if (input.ch >= U' ' && input.ch != 0x7F && len() < max) {
@@ -233,7 +256,7 @@ void ViewLine(int x, int y, std::string value, int width) {
                 color.message);
         SetCursorXY(point, y);
         Show();
-        key = DefineKey();
+        key = DialogKey();
         if (IsExitKey(key))
             break;
         switch (key) {
@@ -329,11 +352,33 @@ void PopupMenu::Call() {
     else
         HideCursor();
     int key = 0;
+    const MouseMoveKeys mouse_moves;
+    bool redraw = true;
     for (;;) {
-        Show();
+        if (redraw)
+            Show();
+        redraw = true;
         SetCursorXY(left, y);
         WaitKey();
-        key = DefineKey();
+        key = DialogKey();
+        if (key == key::MouseMove) {
+            // как у автора: указатель ниже выбранной строки -- выбор вниз,
+            // выше -- вверх, пока они не сравняются
+            const int row = MouseNow().y;
+            const int was = current;
+            for (; row > y && current < count; current++)
+                if (y < top + Height() - 2)
+                    y++;
+                else
+                    first_++;
+            for (; row < y && current > 1; current--)
+                if (y > top + 1)
+                    y--;
+                else
+                    first_--;
+            redraw = current != was;
+            continue;
+        }
         speech::SetTalk(talk);
         // Enter на недоступном элементе (он начинается с \x01) -- не выход.
         if (key == key::Enter && IsExitKey(key) && items[current - 1].text[0] == '\x01')
@@ -459,7 +504,7 @@ void CheckList::Call() {
         const CheckItem& item = items[current - 1];
         speech::Say(std::string(item.on ? "вклю+чено." : "вы+ключено.") + item.text);
         SetCursorXY(left_ + margin_left + 2, y);
-        key = DefineKey();
+        key = DialogKey();
         speech::SetTalk(talk);
         if (IsExitKey(key::Space) && key == key::Space)
             items[current - 1].on = !items[current - 1].on;
@@ -527,7 +572,7 @@ void RadioGroup::Call() {
     for (;;) {
         Show();
         SetCursorXY(left_ + margin_left + 2, y);
-        key = DefineKey();
+        key = DialogKey();
         if (IsExitKey(key))
             break;
         switch (key) {
@@ -596,11 +641,27 @@ void MenuBar::Call() {
     else
         HideCursor();
     int key;
+    const MouseMoveKeys mouse_moves;
+    bool redraw = true;
     for (;;) {
-        Show();
+        if (redraw)
+            Show();
+        redraw = true;
         SetCursorXY(x, top_);
         WaitKey();
-        key = DefineKey();
+        key = DialogKey();
+        if (key == key::MouseMove) {
+            // указатель правее выбранного пункта -- выбор вправо, левее --
+            // влево
+            const int column = MouseNow().x;
+            const int was = current;
+            for (; current < count && column >= x + Width(items[current - 1]); current++)
+                x += Width(items[current - 1]);
+            for (; current > 1 && column < x; current--)
+                x -= Width(items[current - 2]);
+            redraw = current != was;
+            continue;
+        }
         if (IsExitKey(key))
             break;
         switch (key) {
@@ -680,7 +741,7 @@ void ButtonRow::Call() {
     for (;;) {
         Show();
         SetCursorXY(x, bottom_ - 2);
-        key = DefineKey();
+        key = DialogKey();
         if (IsExitKey(key))
             break;
         switch (key) {
@@ -799,7 +860,7 @@ void ShowMessage(std::string_view message, std::string_view help) {
     speech::Say(said);
     int key;
     do {
-        key = DefineKey();
+        key = DialogKey();
         if (key == key::Space) {
             speech::Say(said);
             continue;

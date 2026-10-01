@@ -672,7 +672,9 @@ void Viewer::SetWindow() {
         ui::Clear(1, 1, 80, 25);
         Show();
         ui::SetCursorXY(left, top + 1);
-        const int key = ui::DefineKey();
+        int key = ui::DefineKey();
+        if (key == key::Mouse)
+            key = ui::MouseAsKey();
         if (key == key::Esc) {
             SetPosition(l, t, r, b);
             break;

@@ -8,6 +8,8 @@
 //                               right, home, end, pgup, pgdn, ins, del,
 //                               enter, esc, tab, space, back, [, ], a..z, 0..9
 //     text <строка UTF-8>       набрать строку
+//     mouse <x> <y> <кнопки>    мышь: клетка (с нуля) и нажатые кнопки --
+//                               сумма 1 (левая), 2 (правая), 4 (средняя)
 //     dump                      вывести экран (UTF-8)
 //     alive                     жив ли процесс
 //     kill                      завершить процесс
@@ -167,6 +169,16 @@ int main(int argc, char** argv) {
             if (!key(in, name, mods))
                 out("unknown key " + name + "\n");
             Sleep(150);
+        } else if (cmd == "mouse") {
+            int x = 0, y = 0, buttons = 0;
+            is >> x >> y >> buttons;
+            INPUT_RECORD r = {};
+            r.EventType = MOUSE_EVENT;
+            r.Event.MouseEvent.dwMousePosition = {(SHORT)x, (SHORT)y};
+            r.Event.MouseEvent.dwButtonState = (DWORD)buttons;
+            DWORD w;
+            WriteConsoleInputW(in, &r, 1, &w);
+            Sleep(60);
         } else if (cmd == "text") {
             std::string rest;
             std::getline(is, rest);

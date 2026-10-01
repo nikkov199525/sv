@@ -500,7 +500,7 @@ void SaveSettings() {
     line("");
     line("[INTERFACE]");
     flag("Clock", s.clock);
-    line("Mouse= off");
+    flag("Mouse", s.mouse);
     flag("Cursor", s.cursor);
     flag("PerCent", s.show_percent);
     flag("Coords", s.show_coords);
@@ -586,6 +586,7 @@ void ApplySettings() {
     Settings& s = settings;
     ui::color = s.colors;
     ui::SetClockRow(s.clock ? 2 : 0);
+    ui::EnableMouse(s.mouse);
     speech::SetTalk(s.talk);
     speech::SetDictor(s.dictor);
     sound::SetEnabled(s.sound);

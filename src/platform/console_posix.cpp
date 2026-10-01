@@ -54,6 +54,33 @@ std::string pending;          // непрочитанные байты
 uint32_t pending_since = 0;   // когда пришёл первый из них (мс)
 uint8_t last_mods = 0;
 bool vt_console = false;      // текстовая консоль Linux: TIOCLINUX работает
+bool mouse_on = false;
+MouseState mouse;
+uint8_t mouse_presses = 0;
+
+// Отчёты о мыши xterm: нажатия (1000), движение (1003), запись SGR (1006).
+const char* const kMouseOn = "\x1b[?1000h\x1b[?1003h\x1b[?1006h";
+const char* const kMouseOff = "\x1b[?1006l\x1b[?1003l\x1b[?1000l";
+
+// Отчёт SGR «ESC [ < b;x;y M» (нажатие, движение) или «... m» (отпускание).
+void mouse_report(const int* p, int np, bool press) {
+    if (np < 3)
+        return;
+    const int b = p[0];
+    if (b & 64) // колесо
+        return;
+    static const uint8_t kButton[3] = {kMouseLeft, kMouseMiddle, kMouseRight};
+    uint8_t buttons = mouse.buttons;
+    if (!(b & 32) && (b & 3) < 3) { // нажатие или отпускание кнопки
+        const uint8_t bit = kButton[b & 3];
+        if (press) {
+            mouse_presses |= bit & ~buttons;
+            buttons |= bit;
+        } else
+            buttons &= ~bit;
+    }
+    mouse = {buttons, p[1] - 1, p[2] - 1};
+}
 
 uint32_t now_ms() {
     using namespace std::chrono;
@@ -274,6 +301,11 @@ bool parse_one(bool timed_out) {
             pending.erase(0, i + 1);
             int p[8] = {0};
             int np = 0;
+            if (!par.empty() && par[0] == '<' && (fin == 'M' || fin == 'm')) {
+                csi_params(par.substr(1), p, np);
+                mouse_report(p, np, fin == 'M');
+                return true;
+            }
             csi_params(par, p, np);
             uint8_t mods = np >= 2 ? mods_from_param(p[1]) : 0;
             if (!mods && have_vt)
@@ -478,6 +510,8 @@ void place_cursor(std::string& s) {
 void restore_terminal() {
     if (video_on) {
         // kitty -- снять флаги, xterm -- modifyOtherKeys; курсор, буфер.
+        if (mouse_on)
+            out(kMouseOff);
         out("\x1b[<u\x1b[>4;0m\x1b[0m\x1b[0 q\x1b[?25h\x1b[?1049l");
         video_on = false;
     }
@@ -501,6 +535,8 @@ void InitVideo() {
     // Различать Ctrl+[ и Esc, Ctrl+M и Enter: xterm (modifyOtherKeys) и
     // kitty (протокол клавиатуры). Кто не умеет -- промолчит.
     out("\x1b[>4;2m\x1b[>1u");
+    if (mouse_on)
+        out(kMouseOn);
     struct sigaction sa = {};
     sa.sa_handler = on_winch;
     sigaction(SIGWINCH, &sa, nullptr);
@@ -614,6 +650,31 @@ uint8_t ShiftState() {
         return m;
     // Эмулятор терминала о нажатых модификаторах не сообщает.
     return 0;
+}
+
+void EnableMouse(bool on) {
+    if (video_on && on != mouse_on)
+        out(on ? kMouseOn : kMouseOff);
+    mouse_on = on;
+    mouse = {};
+    mouse_presses = 0;
+}
+
+MouseState GetMouse() {
+    pump();
+    return mouse;
+}
+
+uint8_t TakeMousePresses() {
+    pump();
+    const uint8_t presses = mouse_presses;
+    mouse_presses = 0;
+    return presses;
+}
+
+bool MousePressPending() {
+    pump();
+    return mouse_presses != 0;
 }
 
 } // namespace console

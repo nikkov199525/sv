@@ -303,6 +303,74 @@ int WaitKey() {
     return ui::DefineKey();
 }
 
+// Мышь в окне текста (у автора -- S_U.Call): щелчок левой кнопкой --
+// читать строку, двойной -- весь текст; средней -- справка, двойной --
+// разделы справки; правой -- главное меню, двойной -- выход. Держа одну
+// кнопку и нажимая другую, листают строки: держат правую -- вперёд, левую
+// -- назад. Возвращает клавишу, которую главный цикл ещё должен
+// выполнить (Esc), или 0.
+int MouseCommand() {
+    using namespace std::chrono;
+    using console::kMouseLeft;
+    using console::kMouseMiddle;
+    using console::kMouseRight;
+    const uint8_t pressed = ui::TakeMouseButtons();
+    const uint8_t button = pressed & kMouseLeft     ? kMouseLeft
+                           : pressed & kMouseMiddle ? kMouseMiddle
+                                                    : kMouseRight;
+    auto held = [] { return ui::MouseNow().buttons; };
+    // Листание: пока держится кнопка, нажата и вторая (левая с правой).
+    bool scrolled = false;
+    if (button != kMouseMiddle)
+        while (held() & button) {
+            Viewer* v = CurrentViewer();
+            if ((held() & (kMouseLeft | kMouseRight)) != (kMouseLeft | kMouseRight) || !v) {
+                ui::Idle();
+                continue;
+            }
+            // первый шаг сразу, следующий -- через 7 тиков таймера (0,4 с),
+            // дальше -- каждый тик, пока обе кнопки нажаты
+            for (int step = 0; (held() & (kMouseLeft | kMouseRight)) == (kMouseLeft | kMouseRight);
+                 step++) {
+                if (button == kMouseRight)
+                    v->Next(1);
+                else
+                    v->Last(1);
+                DrawScreen();
+                scrolled = true;
+                const auto until = steady_clock::now() + milliseconds(step == 0 ? 385 : 55);
+                while (steady_clock::now() < until &&
+                       (held() & (kMouseLeft | kMouseRight)) == (kMouseLeft | kMouseRight))
+                    ui::Idle();
+            }
+        }
+    if (scrolled) {
+        ui::TakeMousePresses(); // вторая кнопка листания -- не щелчок
+        return 0;
+    }
+    const bool twice = ui::DoubleClick(button);
+    Viewer* v = CurrentViewer();
+    switch (button) {
+    case kMouseLeft:
+        if (twice)
+            ReadWindows();
+        else if (v)
+            v->ReadLine();
+        return 0;
+    case kMouseMiddle:
+        if (twice)
+            HelpTopics();
+        else
+            ui::help.Show(ui::Context);
+        return 0;
+    default:
+        if (twice)
+            return key::Esc;
+        GlobalMenu();
+        return 0;
+    }
+}
+
 // Найти строку, подходящую под условие, ниже или выше текущей.
 template <typename Match>
 bool FindLine(bool forward, Match match) {
@@ -638,6 +706,15 @@ void Statistics() {
     int key;
     do {
         key = ui::DefineKey();
+        if (key == key::Mouse) {
+            // как у автора: левая кнопка -- прочитать всё, средняя --
+            // справка, правая -- выход
+            const uint8_t buttons = ui::TakeMouseButtons();
+            key = buttons & console::kMouseLeft     ? key::CtrlEnter
+                  : buttons & console::kMouseMiddle ? key::F1
+                  : buttons & console::kMouseRight  ? key::Esc
+                                                    : 0;
+        }
         if (key == key::CtrlEnter) {
             for (int n = 1; n <= 9; n++) {
                 speech::Say(spoken[n] + '.');
@@ -783,7 +860,9 @@ void MainLoop(bool read_first) {
     for (;;) {
         DrawScreen();
         ui::Context = 1;
-        const int code = WaitKey();
+        int code = WaitKey();
+        if (code == key::Mouse && !(code = MouseCommand()))
+            continue;
         Viewer* v = CurrentViewer();
         if (code >= key::Alt9 && code <= key::Alt1) {
             current_window = -code - 119;

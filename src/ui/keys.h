@@ -49,6 +49,11 @@ constexpr int CtrlHome = -119, CtrlEnd = -117, CtrlPgUp = -132, CtrlPgDn = -118;
 constexpr int CtrlLeft = -115, CtrlRight = -116;
 constexpr int ShiftTab = -15;
 
+// Мышь (если включена): нажатие кнопки и, где программа об этом просила,
+// сдвиг указателя на другую клетку. Кнопки -- ui::TakeMouseButtons.
+constexpr int Mouse = -0x1000;
+constexpr int MouseMove = -0x1001;
+
 } // namespace key
 
 #endif

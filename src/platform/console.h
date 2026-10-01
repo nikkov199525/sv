@@ -57,6 +57,30 @@ KeyEvent TakeKey();
 // Модификаторы, нажатые сейчас (насколько это известно).
 uint8_t ShiftState();
 
+// Мышь. Кнопки -- биты, как у драйвера мыши DOS.
+enum : uint8_t {
+    kMouseLeft = 0x01,
+    kMouseRight = 0x02,
+    kMouseMiddle = 0x04,
+};
+
+struct MouseState {
+    uint8_t buttons = 0; // нажатые сейчас
+    int x = 0, y = 0;    // клетка указателя, с нуля
+};
+
+// Включить или выключить мышь. У консоли Windows -- события мыши, у
+// терминала -- его отчёты о мыши (протокол xterm); пока мышь включена,
+// выделять мышью текст в окне терминала нельзя. Текстовая консоль Linux
+// мышь программам так не передаёт.
+void EnableMouse(bool on);
+MouseState GetMouse();
+// Кнопки, нажатые после прошлого вызова: нажатие запоминается, даже если
+// кнопку уже отпустили.
+uint8_t TakeMousePresses();
+// Есть незабранные нажатия?
+bool MousePressPending();
+
 } // namespace console
 
 #endif

@@ -27,6 +27,19 @@ bool keyboard_on = false;
 Cursor cursor_type = Cursor::Underline;
 std::deque<KeyEvent> queue;
 uint8_t shift_state = 0;
+bool mouse_on = false;
+MouseState mouse;
+uint8_t mouse_presses = 0;
+
+// Режим ввода: ни строкового ввода, ни эха, ни обработки Ctrl+C системой:
+// Ctrl+C, Ctrl+S и прочие -- клавиши программы. Быстрое выделение мышью
+// выключено, чтобы щелчок не останавливал вывод; события мыши -- если она
+// включена.
+void ApplyInputMode() {
+    if (keyboard_on)
+        SetConsoleMode(input, ENABLE_EXTENDED_FLAGS | ENABLE_WINDOW_INPUT |
+                                  (mouse_on ? ENABLE_MOUSE_INPUT : 0));
+}
 
 uint8_t ModifiersOf(DWORD state) {
     uint8_t mods = 0;
@@ -150,6 +163,17 @@ void Pump() {
         DWORD got = 0;
         if (!ReadConsoleInputW(input, &record, 1, &got) || got == 0)
             return;
+        if (record.EventType == MOUSE_EVENT) {
+            const MOUSE_EVENT_RECORD& m = record.Event.MouseEvent;
+            if (!mouse_on || (m.dwEventFlags & (MOUSE_WHEELED | MOUSE_HWHEELED)))
+                continue;
+            // биты кнопок Windows -- те же, что у драйвера DOS: левая,
+            // правая, средняя
+            const uint8_t buttons = static_cast<uint8_t>(m.dwButtonState & 0x07);
+            mouse_presses |= buttons & ~mouse.buttons;
+            mouse = {buttons, m.dwMousePosition.X, m.dwMousePosition.Y};
+            continue;
+        }
         if (record.EventType != KEY_EVENT)
             continue;
         const KEY_EVENT_RECORD& key = record.Event.KeyEvent;
@@ -251,12 +275,9 @@ void InitKeyboard() {
         return;
     input = GetStdHandle(STD_INPUT_HANDLE);
     GetConsoleMode(input, &input_mode_saved);
-    // Ни строкового ввода, ни эха, ни обработки Ctrl+C системой: Ctrl+C,
-    // Ctrl+S и прочие -- клавиши программы. Быстрое выделение мышью
-    // выключено, чтобы щелчок не останавливал вывод.
-    SetConsoleMode(input, ENABLE_EXTENDED_FLAGS | ENABLE_WINDOW_INPUT);
-    SetConsoleCtrlHandler(nullptr, TRUE);
     keyboard_on = true;
+    ApplyInputMode();
+    SetConsoleCtrlHandler(nullptr, TRUE);
 }
 
 void DoneKeyboard() {
@@ -287,6 +308,30 @@ KeyEvent TakeKey() {
 uint8_t ShiftState() {
     Pump();
     return shift_state;
+}
+
+void EnableMouse(bool on) {
+    mouse_on = on;
+    mouse = {};
+    mouse_presses = 0;
+    ApplyInputMode();
+}
+
+MouseState GetMouse() {
+    Pump();
+    return mouse;
+}
+
+uint8_t TakeMousePresses() {
+    Pump();
+    const uint8_t presses = mouse_presses;
+    mouse_presses = 0;
+    return presses;
+}
+
+bool MousePressPending() {
+    Pump();
+    return mouse_presses != 0;
 }
 
 } // namespace console

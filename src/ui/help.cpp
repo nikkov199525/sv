@@ -120,8 +120,21 @@ void Help::Show(int number) {
         }
         {
             const ExitKeys keys{key::Up,   key::Down,     key::CtrlEnter, key::F6,
-                                key::F1,   key::CtrlHome, key::CtrlEnd};
+                                key::F1,   key::CtrlHome, key::CtrlEnd,   key::Mouse};
             ViewLine(6, 4, first_line, kLineWidth);
+        }
+        if (ReturnCode == key::Mouse) {
+            // как у автора: левая кнопка -- прочитать строку, двойной
+            // щелчок -- раздел с неё до конца; правая -- выход
+            const uint8_t buttons = TakeMouseButtons();
+            if (buttons & console::kMouseRight)
+                ReturnCode = key::Esc;
+            else if (buttons & console::kMouseLeft) {
+                if (DoubleClick(console::kMouseLeft))
+                    read_on(point);
+                else
+                    speech::Say(std::string(text::Trim(line(point))));
+            }
         }
         switch (ReturnCode) {
         case key::Esc:
