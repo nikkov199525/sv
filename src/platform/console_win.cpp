@@ -100,6 +100,11 @@ KeyEvent Translate(const KEY_EVENT_RECORD& key, char32_t ch) {
     if (vk == VK_TAB && (state & SHIFT_PRESSED) && !ctrl && !alt)
         return MakeSpecial(kShiftTab, mods);
 
+    // Ctrl+Alt+[ и ], Ctrl+Shift+[ и ] -- Ctrl+[ и Ctrl+] с Alt или Shift,
+    // как у терминалов Linux (ускорение и паузы речи).
+    if (ctrl && (alt || (state & SHIFT_PRESSED)) && (vk == VK_OEM_4 || vk == VK_OEM_6))
+        return Make(vk == VK_OEM_4 ? 27 : 29, static_cast<uint8_t>(key.wVirtualScanCode), mods);
+
     if (alt && !altgr) {
         char32_t base = ch;
         if (vk >= 'A' && vk <= 'Z')

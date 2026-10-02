@@ -872,8 +872,15 @@ void MainLoop(bool read_first) {
         switch (code) {
         case key::Esc:
             if (ui::Ctrl()) {
-                // Ctrl+[ -- замедление (справка, разделы 1 и 12).
-                TempoSlower();
+                // Ctrl+[ -- медленнее (справка, разделы 1 и 12); с Alt --
+                // меньше ускорение, с Shift -- короче паузы.
+                if (ui::Alt()) {
+                    if (!ui::Shift())
+                        AccelSlower();
+                } else if (ui::Shift())
+                    PauseShorter();
+                else
+                    TempoSlower();
                 break;
             }
             if (!settings.exit_confirm || ui::Yes("     Выйти из программы?     "))
@@ -1100,8 +1107,17 @@ void MainLoop(bool read_first) {
             }
             break;
         case key::CtrlRightBracket:
-            if (ui::OnlyCtrl())
-                TempoFaster();
+            // Ctrl+] -- быстрее; с Alt -- больше ускорение, с Shift --
+            // длиннее паузы.
+            if (ui::Ctrl()) {
+                if (ui::Alt()) {
+                    if (!ui::Shift())
+                        AccelFaster();
+                } else if (ui::Shift())
+                    PauseLonger();
+                else
+                    TempoFaster();
+            }
             break;
         case key::CtrlK:
             if (v && ui::OnlyCtrl())

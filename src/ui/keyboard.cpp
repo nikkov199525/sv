@@ -13,11 +13,16 @@ namespace ui {
 namespace {
 
 uint8_t modifiers = 0;
+uint8_t pressed_mods = 0;    // модификаторы нажатия последней клавиши (для TakeRepeat)
 bool alt_alone_is_key = false;
 bool mouse_on = false;
 bool mouse_move_is_key = false;
 uint8_t mouse_buttons = 0;   // кнопки последнего key::Mouse
 int mouse_cell = -1;         // клетка указателя при прошлом key::MouseMove
+
+int CodeOf(const console::KeyEvent& event) {
+    return event.ch ? static_cast<int>(event.ch) : -static_cast<int>(event.scan);
+}
 
 // Указатель на другой клетке, чем в прошлый раз?
 bool MouseMoved() {
@@ -47,6 +52,18 @@ void ClearBuffer() {
     while (console::PeekKey())
         console::TakeKey();
     console::TakeMousePresses();
+}
+
+bool TakeRepeat(int code) {
+    const console::KeyEvent next = console::PeekKey();
+    // Shift -- любой из двух: 0x03.
+    auto mods = [](uint8_t m) {
+        return static_cast<uint8_t>((m & (console::kCtrl | console::kAlt)) | (m & console::kShift ? 1 : 0));
+    };
+    if (!next || CodeOf(next) != code || mods(next.mods) != mods(pressed_mods))
+        return false;
+    console::TakeKey();
+    return true;
 }
 
 void EnableMouse(bool on) {
@@ -149,9 +166,8 @@ KeyInput ReadKey() {
     // Модификаторы -- те, что были при нажатии (у Linux их иначе не узнать).
     const console::KeyEvent event = console::TakeKey();
     modifiers = event.mods | console::ShiftState();
-    if (event.ch)
-        return {static_cast<int>(event.ch), event.ch};
-    return {-static_cast<int>(event.scan), 0};
+    pressed_mods = event.mods;
+    return {CodeOf(event), event.ch};
 }
 
 bool Ctrl() {

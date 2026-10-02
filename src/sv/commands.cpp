@@ -649,49 +649,109 @@ void VerifyAlarms() {
 
 // ----------------------------------------------------------- темп речи
 //
-// Шкала -- как у автора: 0 -- самая быстрая речь, 150 -- самая медленная;
-// выше 50 -- через два. Пока нажата клавиша, темп продолжает меняться.
+// Скорость -- 0..150, быстрее -- больше; ниже 100 шаг -- два (у автора --
+// темп выше 50). Ускорение -- -3..+7, 0 -- нормально, плюс -- быстрее.
+// Пауза -- авто, 0..255, длиннее -- больше. Шкалы те же, что в
+// Настройки -> Речь и в SV.INI; ] -- число больше, [ -- меньше.
+//
+// Шаг -- на каждое нажатие; повторы удерживаемой клавиши, скопившиеся в
+// очереди, забираются и тоже делают шаг, а число говорится одно, в конце.
+// (У автора цикл «пока нажата клавиша» её не забирал и при автоповторе
+// уводил темп до упора.)
+
+namespace {
+
+// Число для речи; минус синтезатор не произносит.
+std::string Signed(int n) {
+    return n < 0 ? "ми+нус " + std::to_string(-n) : std::to_string(n);
+}
+
+// Шаг скорости, как у автора: от 100 и с нечётного -- на единицу, ниже --
+// на два. false -- дальше некуда.
+bool TempoStep(bool faster) {
+    int& speed = settings.speed;
+    const bool single = faster ? (speed >= 100 && speed <= 149) || speed % 2 != 0
+                               : speed >= 101 || speed % 2 != 0;
+    const int next = faster ? speed + (single ? 1 : 2) : speed - (single ? 1 : 2);
+    if (next < 0 || next > 150) {
+        sound::Play(Signal::Edge);
+        return false;
+    }
+    speed = next;
+    return true;
+}
+
+void ChangeTempo(bool faster, int key) {
+    if (TempoStep(faster))
+        while (ui::TakeRepeat(key) && TempoStep(faster)) {
+        }
+    speech::SetSpeed(settings.speed);
+    speech::Say(text::FormatNumber(settings.speed));
+}
+
+bool AccelStep(bool faster) {
+    int& accel = settings.acceleration;
+    const int next = faster ? accel + 1 : accel - 1;
+    if (next < -3 || next > 7) {
+        sound::Play(Signal::Edge);
+        return false;
+    }
+    accel = next;
+    return true;
+}
+
+void ChangeAccel(bool faster, int key) {
+    if (AccelStep(faster))
+        while (ui::TakeRepeat(key) && AccelStep(faster)) {
+        }
+    speech::SetAcceleration(settings.acceleration, settings.pause);
+    speech::Say(Signed(settings.acceleration));
+}
+
+// Ниже нуля -- авто (по ускорению), как в настройках.
+bool PauseStep(bool longer) {
+    int& pause = settings.pause;
+    const int next = longer ? pause + 1 : pause - 1;
+    if (next < speech::kPauseAuto || next > 255) {
+        sound::Play(Signal::Edge);
+        return false;
+    }
+    pause = next;
+    return true;
+}
+
+void ChangePause(bool longer, int key) {
+    if (PauseStep(longer))
+        while (ui::TakeRepeat(key) && PauseStep(longer)) {
+        }
+    speech::SetAcceleration(settings.acceleration, settings.pause);
+    speech::Say(settings.pause == speech::kPauseAuto ? "а+вто" : std::to_string(settings.pause));
+}
+
+} // namespace
 
 void TempoFaster() {
-    int& tempo = settings.tempo;
-    do {
-        if ((tempo >= 1 && tempo <= 50) || tempo % 2 != 0) {
-            if (tempo == 0) {
-                sound::Play(Signal::Edge);
-                break;
-            }
-            tempo--;
-        } else {
-            if (tempo < 2) {
-                sound::Play(Signal::Edge);
-                break;
-            }
-            tempo -= 2;
-        }
-    } while (ui::KeyPressed());
-    speech::SetTempo(tempo);
-    speech::Say(text::FormatNumber(tempo));
+    ChangeTempo(true, key::CtrlRightBracket);
 }
 
 void TempoSlower() {
-    int& tempo = settings.tempo;
-    do {
-        if (tempo <= 49 || tempo % 2 != 0) {
-            if (tempo == 150) {
-                sound::Play(Signal::Edge);
-                break;
-            }
-            tempo++;
-        } else {
-            if (tempo > 148) {
-                sound::Play(Signal::Edge);
-                break;
-            }
-            tempo += 2;
-        }
-    } while (ui::KeyPressed());
-    speech::SetTempo(tempo);
-    speech::Say(text::FormatNumber(tempo));
+    ChangeTempo(false, key::Esc);
+}
+
+void AccelFaster() {
+    ChangeAccel(true, key::CtrlRightBracket);
+}
+
+void AccelSlower() {
+    ChangeAccel(false, key::Esc);
+}
+
+void PauseLonger() {
+    ChangePause(true, key::CtrlRightBracket);
+}
+
+void PauseShorter() {
+    ChangePause(false, key::Esc);
 }
 
 // ---------------------------------------------------------------- блок

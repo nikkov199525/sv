@@ -295,102 +295,145 @@ void SetupSound() {
 
 // ----------------------------------------------------------------- речь
 
+// У автора последним полем был путь к дикторским файлам (male.dat и
+// female.dat драйвера); голоса теперь вшиты в ядро, и поля нет.
 void SetupVoice() {
     ui::Context = 28;
-    constexpr int kTop = 7, kLeft = 45;
-    std::string voice_dir = settings.voice_dir;
-    int tempo = settings.tempo;
-    const int old_tempo = settings.tempo, old_dictor = settings.dictor;
+    constexpr int kTop = 7, kLeft = 45, kRight = kLeft + 31, kBottom = kTop + 13;
+    const int old_speed = settings.speed, old_dictor = settings.dictor;
+    const int old_accel = settings.acceleration, old_pause = settings.pause;
     const bool old_talk = settings.talk;
-    ui::Clear(kLeft, kTop, kLeft + 31, kTop + 14);
+    ui::Clear(kLeft, kTop, kRight, kBottom);
     ui::CheckList check;
     check.items = {{"  Речь", settings.talk}};
     check.margin_left = 5;
     check.margin_top = 1;
     check.cycle = settings.cycle_menu;
-    check.SetPosition(kLeft, kTop, kLeft + 31, kTop + 14);
+    check.SetPosition(kLeft, kTop, kRight, kBottom);
     check.Show();
     ui::RadioGroup radio;
     radio.items = {"  Мужской тенор", "  Женский альт", "  Мужской баритон", "  Женский сопрано"};
     radio.margin_top = 3;
     radio.margin_left = 5;
-    radio.SetPosition(kLeft, kTop, kLeft + 31, kTop + 14);
+    radio.SetPosition(kLeft, kTop, kRight, kBottom);
     radio.selected = settings.dictor + 1;
+    // Голос выбирается стрелками и сразу звучит: название пункта говорится
+    // уже им. Esc возвращает прежний.
+    radio.select_follows_cursor = true;
+    radio.on_select = [](int n) {
+        settings.dictor = n - 1;
+        speech::SetDictor(settings.dictor);
+    };
     radio.Show();
-    auto show_tempo = [&](uint8_t attr) {
-        ui::PutLine(kLeft + 13, kTop + 9, "   ", attr);
-        ui::PutLine(kLeft + 13, kTop + 9, std::to_string(tempo), attr);
+    radio.current = radio.selected; // курсор -- на текущем голосе
+
+    // Числовые поля: скорость, ускорение, пауза -- шкалы как в SV.INI.
+    // Стрелки меняют число, home и end -- края; новое значение действует и
+    // слышно сразу. (У автора здесь был темп: 0 -- быстрее всего, 150 --
+    // медленнее, влево -- быстрее.)
+    struct Number {
+        int y;
+        const char* label;
+        const char* spoken;
+        int width;
+        int lo, hi;
+        int value;
+        std::string (*text)(int);
+        std::string (*say)(int);
+        void (*apply)(int);
     };
-    auto show_dir = [&] {
-        ui::PutLine(kLeft + 2, kTop + 12, std::string(28, ' '), ui::color.text);
-        ui::PutLine(kLeft + 2, kTop + 12, text::Left(voice_dir, 30), ui::color.text);
+    Number numbers[] = {
+        {kTop + 9, " Скорость - ", "ско+рость.", 3, 0, 150, settings.speed,
+         [](int v) { return std::to_string(v); }, [](int v) { return std::to_string(v); },
+         [](int v) { settings.speed = v; }},
+        {kTop + 10, " Ускорение - ", "ускоре+ние.", 2, -3, 7, settings.acceleration,
+         [](int v) { return v > 0 ? "+" + std::to_string(v) : std::to_string(v); },
+         [](int v) { return v < 0 ? "ми+нус " + std::to_string(-v) : std::to_string(v); },
+         [](int v) { settings.acceleration = v; }},
+        {kTop + 11, " Пауза между фразами - ", "па+уза ме+жду фра+зами.", 4, -1, 255, settings.pause,
+         [](int v) { return v < 0 ? std::string("авто") : std::to_string(v); },
+         [](int v) { return v < 0 ? std::string("а+вто") : std::to_string(v); },
+         [](int v) { settings.pause = v; }},
     };
-    ui::PutLine(kLeft + 5, kTop + 9, " Темп - ", ui::color.message);
-    show_tempo(ui::color.menu.inactive);
-    ui::PutLine(kLeft + 2, kTop + 11, "  Путь к дикторским файлам  ", ui::color.message);
-    show_dir();
+    auto show_number = [&](const Number& n, uint8_t attr) {
+        const int x = kLeft + 3 + static_cast<int>(text::Width(n.label));
+        ui::PutLine(x, n.y, std::string(n.width, ' '), attr);
+        ui::PutLine(x, n.y, n.text(n.value), attr);
+    };
+    auto edit_number = [&](Number& n) {
+        speech::Say(n.spoken);
+        ui::SetCursorXY(kLeft + 2 + static_cast<int>(text::Width(n.label)), n.y);
+        ui::HideCursor();
+        for (;;) {
+            show_number(n, ui::color.menu.active);
+            ui::Show();
+            n.apply(n.value);
+            ApplySettings();
+            speech::Say(n.say(n.value));
+            while (!ui::KeyPressed())
+                ui::Idle();
+            while (ui::KeyPressed()) {
+                ui::ReturnCode = ui::DefineKey();
+                if (Pressed({key::Tab, key::ShiftTab, key::Enter, key::Esc}))
+                    break;
+                // у автора на краях шкала темпа заворачивалась: «быстрее» с
+                // самого быстрого темпа давало самый медленный
+                switch (ui::ReturnCode) {
+                case key::Left:
+                    if (n.value > n.lo)
+                        n.value--;
+                    else
+                        sound::Play(Signal::Edge);
+                    break;
+                case key::Right:
+                    if (n.value < n.hi)
+                        n.value++;
+                    else
+                        sound::Play(Signal::Edge);
+                    break;
+                case key::Home: n.value = n.lo; break;
+                case key::End: n.value = n.hi; break;
+                case key::F1: ui::help.Show(ui::Context); break;
+                }
+                if (&n == &numbers[0]) // тон -- как у автора, по темпу
+                    sound::Beep(30 * (150 - n.value + 1), 100);
+            }
+            if (Pressed({key::Esc, key::Enter, key::Tab, key::ShiftTab}))
+                break;
+        }
+        show_number(n, ui::color.menu.inactive);
+        ui::ShowCursor();
+    };
+    for (const Number& n : numbers) {
+        ui::PutLine(kLeft + 3, n.y, n.label, ui::color.message);
+        show_number(n, ui::color.menu.inactive);
+    }
     {
+        // Поля: 1 -- речь, 2 -- голос, 3..5 -- числа.
         const ui::ExitKeys keys{key::Tab, key::F1, key::ShiftTab};
         int area = 1;
         for (;;) {
-            if (area == 1) {
+            if (area == 1)
                 CallWithHelp(check);
-                area = ui::ReturnCode == key::ShiftTab ? 4 : 2;
-            } else if (area == 2) {
+            else if (area == 2)
                 CallWithHelp(radio);
-                area = ui::ReturnCode == key::ShiftTab ? 1 : 3;
-            } else if (area == 3) {
-                // Темп: стрелки, Home, End; новый темп слышен сразу.
-                speech::Say("те+мп.");
-                ui::SetCursorXY(kLeft + 12, kTop + 9);
-                ui::HideCursor();
-                for (;;) {
-                    show_tempo(ui::color.menu.active);
-                    ui::Show();
-                    settings.tempo = tempo;
-                    ApplySettings();
-                    speech::Say(std::to_string(tempo));
-                    while (!ui::KeyPressed())
-                        ui::Idle();
-                    while (ui::KeyPressed()) {
-                        ui::ReturnCode = ui::DefineKey();
-                        if (Pressed({key::Tab, key::ShiftTab, key::Enter, key::Esc}))
-                            break;
-                        switch (ui::ReturnCode) {
-                        case key::Left: tempo = tempo > 0 ? tempo - 1 : 150; break;
-                        case key::Right: tempo = tempo < 150 ? tempo + 1 : 0; break;
-                        case key::Home: tempo = 0; break;
-                        case key::End: tempo = 150; break;
-                        case key::F1: ui::help.Show(ui::Context); break;
-                        }
-                        sound::Beep(30 * (tempo + 1), 100);
-                    }
-                    if (Pressed({key::Esc, key::Enter, key::Tab, key::ShiftTab}))
-                        break;
-                }
-                show_tempo(ui::color.menu.inactive);
-                ui::ShowCursor();
-                area = ui::ReturnCode == key::ShiftTab ? 2 : 4;
-            } else {
-                speech::Say("пу+ть к ди+кторским фа+йлам.");
-                speech::Say(voice_dir);
-                ui::color.text = ui::color.menu.active;
-                EditWithHelp(kLeft + 2, kTop + 12, voice_dir, 68, 28);
-                show_dir();
-                area = ui::ReturnCode == key::ShiftTab ? 3 : 1;
-            }
+            else
+                edit_number(numbers[area - 3]);
             if (!Pressed({key::Tab, key::ShiftTab}))
                 break;
+            area = ui::ReturnCode == key::ShiftTab ? (area == 1 ? 5 : area - 1) : (area == 5 ? 1 : area + 1);
         }
     }
     if (ui::ReturnCode == key::Enter) {
         settings.talk = check.items[0].on;
         settings.dictor = radio.selected - 1;
-        settings.tempo = tempo;
-        settings.voice_dir = voice_dir;
+        for (const Number& n : numbers)
+            n.apply(n.value);
     } else {
-        settings.tempo = old_tempo;
+        settings.speed = old_speed;
         settings.dictor = old_dictor;
+        settings.acceleration = old_accel;
+        settings.pause = old_pause;
         settings.talk = old_talk;
     }
     ApplySettings();

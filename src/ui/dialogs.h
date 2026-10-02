@@ -12,6 +12,7 @@
 #include "ui/keyboard.h"
 #include "ui/screen.h"
 
+#include <functional>
 #include <initializer_list>
 #include <string>
 #include <string_view>
@@ -110,6 +111,10 @@ public:
     int margin_left = 0, margin_top = 0;
     FrameStyle frame = kDoubleFrame;
     std::string title;
+    // Выбор идёт за курсором (не только по пробелу), и о каждом новом
+    // выборе сразу сообщается -- до того, как пункт будет сказан.
+    bool select_follows_cursor = false;
+    std::function<void(int)> on_select;
 
     void SetPosition(int l, int t, int r, int b);
     void Call();

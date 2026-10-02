@@ -209,6 +209,11 @@ uint8_t mods_from_param(int m) {
 // Символ с модификаторами (из CSI u и modifyOtherKeys).
 KeyEvent char_with_mods(char32_t u, uint8_t mods) {
     using namespace keymap;
+    // Ctrl+Alt+[ и ], Ctrl+Shift+[ и ] (с Shift терминал шлёт и «{», «}») --
+    // Ctrl+[ и Ctrl+] с Alt или Shift (ускорение и паузы речи).
+    if ((mods & kCtrl) && (mods & (kAlt | kShift)) &&
+        (u == '[' || u == '{' || u == 27 || u == ']' || u == '}' || u == 29))
+        return Make(u == '[' || u == '{' || u == 27 ? 27 : 29, 0, mods);
     if (mods & kAlt)
         return MakeAltChar(u, mods);
     if (mods & kCtrl) {

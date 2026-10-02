@@ -25,6 +25,9 @@ inline int DefineKey() {
 // Нажата клавиша (или кнопка мыши)?
 bool KeyPressed();
 void ClearBuffer();
+// Следующая в очереди -- та же клавиша (автоповтор удерживаемой: тот же
+// код, те же Ctrl, Alt и Shift)? Тогда она забирается.
+bool TakeRepeat(int code);
 // Немного подождать, не занимая процессор.
 void Idle();
 

@@ -109,13 +109,15 @@ void SetDictor(int dictor) {
         newfon::SetVoice(dictor);
 }
 
-void SetTempo(int tempo) {
-    if (talk && tempo <= newfon::kTempoMax)
-        newfon::SetTempo(tempo);
+// У ядра шкалы наоборот: темп 0..150 -- растяжка звука (0 -- быстрее
+// всего), accel 3..13 (10 -- нормально, меньше -- быстрее).
+void SetSpeed(int speed) {
+    if (talk && speed >= 0 && speed <= newfon::kTempoMax)
+        newfon::SetTempo(newfon::kTempoMax - speed);
 }
 
-void SetAcceleration(int accel, int pause) {
-    newfon::SetAcceleration(accel, pause);
+void SetAcceleration(int acceleration, int pause) {
+    newfon::SetAcceleration(10 - acceleration, pause);
 }
 
 void SetCyrillic(Cyrillic cyrillic) {

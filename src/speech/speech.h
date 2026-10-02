@@ -24,11 +24,13 @@ void Shutdown();
 void SetTalk(bool on);
 bool Talking();
 void SetDictor(int dictor);
-void SetTempo(int tempo);
-// Ускорение речи поверх темпа и паузы между фразами -- как ключи accel и
-// pause драйвера SDRV: accel 3..13 (10 -- нормально, меньше -- быстрее),
-// pause 0..255 (100 -- обычные), -1 -- паузы пропорциональны accel.
-void SetAcceleration(int accel, int pause);
+// Скорость речи: 0..150, больше -- быстрее.
+void SetSpeed(int speed);
+// Ускорение поверх скорости: -3..+7, 0 -- нормально, плюс -- быстрее.
+// Пауза между фразами: 0..255 (100 -- обычная), kPauseAuto -- по
+// ускорению, как у прежнего драйвера.
+constexpr int kPauseAuto = -1;
+void SetAcceleration(int acceleration, int pause);
 // Язык кириллических слов читаемого текста (Ctrl+Y).
 void SetCyrillic(Cyrillic cyrillic);
 // Произносить пробел словом «пб» (иначе -- сигнал).

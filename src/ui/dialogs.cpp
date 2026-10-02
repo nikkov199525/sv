@@ -604,7 +604,14 @@ void RadioGroup::Call() {
             break;
         case key::Space:
             selected = current;
+            if (on_select)
+                on_select(selected);
             break;
+        }
+        if ((key == key::Down || key == key::Up) && select_follows_cursor && selected != current) {
+            selected = current;
+            if (on_select)
+                on_select(selected);
         }
     }
     ReturnCode = key;

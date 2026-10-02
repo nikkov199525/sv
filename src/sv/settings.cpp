@@ -167,10 +167,10 @@ bool ParseBookmark(const IniLine& l, Settings& s) {
     return false;
 }
 
-// Ускорение и паузы были в SV.INI? Нет -- берутся из newfon.cfg прежних
-// версий (ReadNewfonCfg).
+// Ключи уже прочитаны? Тогда ключи прежних версий (Temp, Accel) их не
+// перекрывают.
+bool ini_has_speed = false;
 bool ini_has_accel = false;
-bool ini_has_pause = false;
 
 bool ParseSynthesizer(const IniLine& l, Settings& s) {
     long number;
@@ -180,28 +180,45 @@ bool ParseSynthesizer(const IniLine& l, Settings& s) {
         s.dictor = static_cast<int>(number);
         return true;
     }
+    // Голоса в ядре, папка не нужна: не существующая -- не ошибка (у
+    // автора без папки дикторских файлов речи не было).
     if (text::StartsWith(l.key, "VOICEDIRECTORY")) {
         std::string dir = l.value;
         if (!dir.empty() && dir.back() == sys::kSeparator)
             dir.pop_back();
-        if (fs::is_directory(sys::Path(dir))) {
-            s.voice_dir = dir;
-            return true;
-        }
-    }
-    if (text::StartsWith(l.key, "TEMP") && ParseRange(l.value, 0, 150, number)) {
-        s.tempo = static_cast<int>(number);
+        s.voice_dir = dir;
         return true;
     }
-    // пределы -- как у драйвера SDRV
-    if (text::StartsWith(l.key, "ACCEL") && ParseRange(l.value, 3, 13, number)) {
-        s.accel = static_cast<int>(number);
+    // Новые и прежние ключи -- только целиком: Acceleration начинается с
+    // Accel, а шкалы у них разные.
+    if (l.key == "SPEED" && ParseRange(l.value, 0, 150, number)) {
+        s.speed = static_cast<int>(number);
+        ini_has_speed = true;
+        return true;
+    }
+    if (l.key == "ACCELERATION" && ParseRange(l.value, -3, 7, number)) {
+        s.acceleration = static_cast<int>(number);
         ini_has_accel = true;
         return true;
     }
-    if (text::StartsWith(l.key, "PAUSE") && ParseRange(l.value, -1, 255, number)) {
+    if (text::StartsWith(l.key, "PAUSE")) {
+        if (text::EqualNoCase(l.value, "AUTO"))
+            number = speech::kPauseAuto;
+        else if (!ParseRange(l.value, -1, 255, number))
+            return false;
         s.pause = static_cast<int>(number);
-        ini_has_pause = true;
+        return true;
+    }
+    // Ключи прежних версий, шкалы наоборот: Temp 0..150 (0 -- быстрее
+    // всего), Accel 3..13 (10 -- нормально, меньше -- быстрее).
+    if (l.key == "TEMP" && ParseRange(l.value, 0, 150, number)) {
+        if (!ini_has_speed)
+            s.speed = 150 - static_cast<int>(number);
+        return true;
+    }
+    if (l.key == "ACCEL" && ParseRange(l.value, 3, 13, number)) {
+        if (!ini_has_accel)
+            s.acceleration = 10 - static_cast<int>(number);
         return true;
     }
     return false;
@@ -358,7 +375,7 @@ bool ParseLastFiles(const IniLine& l, Settings& s) {
 }
 
 void LoadIni() {
-    ini_has_accel = ini_has_pause = false;
+    ini_has_speed = ini_has_accel = false;
     std::ifstream in(sys::Path(ProgramFile(kIniFile)), std::ios::binary);
     if (!in) {
         ShowError(14);
@@ -412,29 +429,6 @@ void LoadIni() {
     }
 }
 
-// newfon.cfg прежних версий: «accel= N», «pause= N», после «;» --
-// примечание. Читается, только если в SV.INI этих ключей ещё нет; при
-// сохранении настроек значения переходят в SV.INI.
-void ReadNewfonCfg() {
-    if (ini_has_accel && ini_has_pause)
-        return;
-    std::ifstream file(sys::Path(ProgramFile("newfon.cfg")));
-    for (std::string line; std::getline(file, line);) {
-        line = line.substr(0, line.find(';'));
-        const size_t equal = line.find('=');
-        if (equal == std::string::npos)
-            continue;
-        const std::string name = text::Upper(text::Trim(std::string_view(line).substr(0, equal)));
-        const auto number = text::ParseInt(text::Trim(std::string_view(line).substr(equal + 1)));
-        if (!number)
-            continue;
-        if (name == "ACCEL" && !ini_has_accel && *number >= 3 && *number <= 13)
-            settings.accel = static_cast<int>(*number);
-        if (name == "PAUSE" && !ini_has_pause && *number >= -1 && *number <= 255)
-            settings.pause = static_cast<int>(*number);
-    }
-}
-
 } // namespace
 
 void SetDefaults() {
@@ -465,7 +459,6 @@ void LoadSettings() {
     else
         ShowError(13);
     LoadIni();
-    ReadNewfonCfg();
     ApplySettings();
 }
 
@@ -516,9 +509,9 @@ void SaveSettings() {
     flag("Talk", s.talk);
     line("Dictor= " + std::to_string(s.dictor));
     line("VoiceDirectory= " + s.voice_dir);
-    line("Temp= " + std::to_string(s.tempo));
-    line("Accel= " + std::to_string(s.accel));
-    line("Pause= " + std::to_string(s.pause));
+    line("Speed= " + std::to_string(s.speed));
+    line("Acceleration= " + std::to_string(s.acceleration));
+    line("Pause= " + (s.pause == speech::kPauseAuto ? std::string("Auto") : std::to_string(s.pause)));
     line("");
     line("[READING]");
     flag("EmptyLine", s.read_empty);
@@ -590,8 +583,8 @@ void ApplySettings() {
     speech::SetTalk(s.talk);
     speech::SetDictor(s.dictor);
     sound::SetEnabled(s.sound);
-    speech::SetTempo(s.tempo);
-    speech::SetAcceleration(s.accel, s.pause);
+    speech::SetSpeed(s.speed);
+    speech::SetAcceleration(s.acceleration, s.pause);
     // Пользовательская перекодировка без файла -- обычная. (У автора здесь
     // стояло «Mode = 3», оставшееся с тех пор, когда пользовательской была
     // кодировка 3: после появления UTF-8 это сбрасывало её в обычную.)

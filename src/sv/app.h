@@ -52,6 +52,12 @@ void Print();
 void PrintBlock();
 void TempoFaster();
 void TempoSlower();
+// Ускорение речи (Ctrl+Alt+] и Ctrl+Alt+[).
+void AccelFaster();
+void AccelSlower();
+// Паузы между фразами (Ctrl+Shift+] и Ctrl+Shift+[).
+void PauseLonger();
+void PauseShorter();
 void BlockBegin();
 void BlockEnd();
 void BlockRead();
